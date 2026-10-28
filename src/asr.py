@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 logger = logging.getLogger(__name__)
 
 
-def _load_model(model_name: str = "openai/whisper-large-v3-turbo"):
+def _load_model(model_name: str = "turbo"):
     """Tải faster-whisper model, fallback CPU nếu CUDA không khả dụng."""
     from faster_whisper import WhisperModel  # type: ignore
 

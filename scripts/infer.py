@@ -1,8 +1,4 @@
-"""Script chạy inference chính cho ZAC 2026 LifeMate Agent.
-
-Chạy từ thư mục gốc project:
-    python scripts/infer.py --split public_test --output submission.jsonl
-"""
+"""Run LifeMate inference and write the organiser's JSONL submission format."""
 
 from __future__ import annotations
 
@@ -14,145 +10,74 @@ import sys
 import time
 from pathlib import Path
 
-import numpy as np
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+from src.asr import _load_model
+from src.llm_agent import LLMAgent
+from src.pipeline import Pipeline
+
 logger = logging.getLogger(__name__)
-
-# ── Cố định seed ─────────────────────────────────────────────────────────────
-random.seed(42)
-np.random.seed(42)
-
-try:
-    import torch
-    torch.manual_seed(42)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(42)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-except ImportError:
-    pass
-
-# ── Đường dẫn gốc ────────────────────────────────────────────────────────────
-DATA_ROOT = Path("data/train+public_test/train+public_test")
-
-
-def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="ZAC 2026 LifeMate — Inference")
-    p.add_argument("--split", default="public_test",
-                   choices=["public_test", "train", "private_test"],
-                   help="Split cần chạy (default: public_test)")
-    p.add_argument("--output", default="submission.jsonl",
-                   help="File output JSONL (default: submission.jsonl)")
-    p.add_argument("--max-samples", type=int, default=None,
-                   help="Giới hạn số sample (debug)")
-    return p.parse_args()
-
-
-def setup_zaic_tools(split: str) -> None:
-    """Thêm zaic_tools của split vào sys.path."""
-    zaic_path = str(DATA_ROOT / split)
-    if zaic_path not in sys.path:
-        sys.path.insert(0, zaic_path)
-    logger.info("zaic_tools path: %s", zaic_path)
-
-
-def load_pipeline():
-    """Load ASR và LLM một lần, tái sử dụng cho tất cả sample."""
-    from src.asr import _load_model as load_whisper  # type: ignore
-    from src.pipeline import Pipeline  # type: ignore
-
-    logger.info("Đang load Whisper model...")
-    whisper_model = load_whisper()
-    logger.info("Đang load LLM pipeline...")
-    pipeline = Pipeline(whisper_model=whisper_model)
-    return pipeline
-
-
-def run_inference(
-    pipeline,
-    item: dict,
-    split: str,
-    env_cls,
-    output_fh,
-) -> None:
-    """Chạy inference cho một sample, ghi kết quả ra file."""
-    from zaic_tools import ToolEnv  # type: ignore  # noqa: F401
-
-    sample_id = item["id"]
-    env = ToolEnv(split, sample_id, root=DATA_ROOT.parent.parent)
-
-    tool_calls, state_hash = pipeline.infer(item, env, split=split, data_root=DATA_ROOT)
-
-    record = {
-        "id": sample_id,
-        "tool_calls": tool_calls,
-        "state_hash": state_hash,
-    }
-    output_fh.write(json.dumps(record, ensure_ascii=False) + "\n")
-    output_fh.flush()
 
 
 def main() -> None:
-    args = parse_args()
-    split = args.split
+    parser = argparse.ArgumentParser(description="ZAC 2026 LifeMate inference")
+    parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "data/train+public_test/train+public_test")
+    parser.add_argument("--split", choices=("train", "public_test", "private_test"), default="public_test")
+    parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "submission.jsonl")
+    parser.add_argument("--max-samples", type=int)
+    parser.add_argument("--whisper-model", default="turbo")
+    parser.add_argument("--llm-model", default="Qwen/Qwen3-4B-Instruct-2507")
+    args = parser.parse_args()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
-    # Cần setup trước khi import zaic_tools
-    setup_zaic_tools(split)
-
-    pipeline = load_pipeline()
-
-    jsonl_path = DATA_ROOT / split / f"{split}.jsonl"
-    logger.info("Đọc dữ liệu từ: %s", jsonl_path)
-
-    items = []
-    with open(jsonl_path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                items.append(json.loads(line))
-
-    if args.max_samples is not None:
-        items = items[: args.max_samples]
-        logger.info("Debug mode: chỉ chạy %d sample đầu", len(items))
-
-    logger.info("Tổng số sample: %d", len(items))
-
-    # Import sau khi setup_zaic_tools
-    from zaic_tools import ToolEnv  # type: ignore  # noqa: F401
-
-    times: list[float] = []
-    output_path = Path(args.output)
-
+    random.seed(42)
     try:
-        from tqdm import tqdm
-        iterator = tqdm(items, desc=f"Inference [{split}]", unit="sample")
+        import numpy as np
+        np.random.seed(42)
+        import torch
+        torch.manual_seed(42)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(42)
+            torch.backends.cudnn.deterministic = True
+            torch.backends.cudnn.benchmark = False
     except ImportError:
-        logger.warning("tqdm không cài — chạy không có progress bar")
-        iterator = items  # type: ignore[assignment]
+        pass
 
-    with open(output_path, "w", encoding="utf-8") as fout:
-        for item in iterator:
-            t0 = time.perf_counter()
+    split_dir = args.data_root / args.split
+    sys.path.insert(0, str(split_dir))
+    from zaic_tools import ToolEnv
+
+    with (split_dir / f"{args.split}_tools_catalog.json").open(encoding="utf-8") as handle:
+        catalog = json.load(handle)
+
+    pipeline = Pipeline(_load_model(args.whisper_model), LLMAgent(args.llm_model))
+    count = 0
+    elapsed_total = 0.0
+    args.output.parent.mkdir(parents=True, exist_ok=True)
+    with (split_dir / f"{args.split}.jsonl").open(encoding="utf-8") as source, args.output.open("w", encoding="utf-8") as target:
+        for line in source:
+            if not line.strip():
+                continue
+            if args.max_samples is not None and count >= args.max_samples:
+                break
+            item = json.loads(line)
+            env = ToolEnv(args.split, item["id"], root=args.data_root)
+            started = time.perf_counter()
             try:
-                run_inference(pipeline, item, split, ToolEnv, fout)
-            except Exception as exc:  # noqa: BLE001
-                logger.error("Lỗi sample %s: %s", item.get("id"), exc, exc_info=True)
-                # Ghi dòng rỗng để không mất sample
-                fout.write(json.dumps({"id": item["id"], "tool_calls": [], "state_hash": ""}, ensure_ascii=False) + "\n")
-                fout.flush()
-            elapsed = time.perf_counter() - t0
-            times.append(elapsed)
+                calls, state_hash = pipeline.infer(
+                    item, env, catalog=catalog, audio_path=split_dir / item["audio"]
+                )
+            except Exception:
+                logger.exception("Sample %s failed", item["id"])
+                calls, state_hash = env.get_tool_calls(), env.get_state_hash()
+            elapsed_total += time.perf_counter() - started
+            target.write(json.dumps({"id": item["id"], "tool_calls": calls, "state_hash": state_hash}, ensure_ascii=False) + "\n")
+            target.flush()
+            count += 1
+            logger.info("Processed %d: %s (%.2fs average)", count, item["id"], elapsed_total / count)
 
-    # ── Thống kê cuối ──────────────────────────────────────────────────────
-    total = len(times)
-    avg = sum(times) / total if total else 0.0
-    logger.info("=" * 50)
-    logger.info("Hoàn thành!")
-    logger.info("  Số sample    : %d", total)
-    logger.info("  TB / sample  : %.2f giây", avg)
-    logger.info("  Tổng thời gian: %.1f giây", sum(times))
-    logger.info("  Output       : %s", output_path.resolve())
+    logger.info("Wrote %d samples to %s", count, args.output)
 
 
 if __name__ == "__main__":

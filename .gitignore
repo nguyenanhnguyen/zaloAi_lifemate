@@ -1,2 +1,7 @@
 data/
 env/
+models/
+checkpoints/
+submission.jsonl
+debug.jsonl
+__pycache__/

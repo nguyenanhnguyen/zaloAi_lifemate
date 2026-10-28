@@ -1,29 +1,7 @@
-# ZAC 2026 LifeMate — Dependencies
-# Python 3.13, CUDA 12.4 (tương thích driver 621.01, RTX 2050 4GB)
-#
-# !! Cài torch TRƯỚC với index-url CUDA 12.4:
-#    pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
-#
-# Sau đó:
-#    pip install -r requirements.txt
-
-# ── Core inference ─────────────────────────────────────────────────────────
+# Install a PyTorch build appropriate for the machine first.
+torch>=2.4
 faster-whisper>=1.1.0
-transformers>=4.47.0
+transformers>=4.51.0
 accelerate>=1.1.0
-
-# ── Quantization (4-bit BnB cho LLM trên 4GB VRAM) ────────────────────────
 bitsandbytes>=0.45.0
-
-# ── Fine-tuning (LoRA) ─────────────────────────────────────────────────────
-peft>=0.13.0
-
-# ── Audio ──────────────────────────────────────────────────────────────────
-soundfile>=0.13.0
-
-# ── Utilities ──────────────────────────────────────────────────────────────
-tqdm>=4.66.0
 numpy>=1.26.0
-
-# ── Optional: download models ──────────────────────────────────────────────
-huggingface-hub>=0.26.0
