@@ -7,7 +7,7 @@ import logging
 import unicodedata
 from pathlib import Path
 
-from .asr import transcribe
+from .asr import WhisperASR
 from .llm_agent import LLMAgent
 
 logger = logging.getLogger(__name__)
@@ -52,25 +52,27 @@ def _prompt(item: dict, transcript: str, tools: list[dict], observations: list[d
 class Pipeline:
     """Load models once; the runner creates one ToolEnv per sample."""
 
-    def __init__(self, whisper_model, llm_agent: LLMAgent | None = None) -> None:
-        self.whisper_model = whisper_model
+    def __init__(self, asr_model: WhisperASR, llm_agent: LLMAgent | None = None) -> None:
+        self.asr_model = asr_model
         self.llm_agent = llm_agent or LLMAgent()
 
     def infer(self, item: dict, env, *, catalog: dict, audio_path: Path) -> tuple[list[dict], str]:
         installed = item.get("context", {}).get("installed_apps", {})
         tools = _available_tools(catalog, installed)
         names = {tool["name"] for tool in tools}
-        transcript = transcribe(audio_path, sorted(installed), model=self.whisper_model)
+        transcript = self.asr_model.transcribe(audio_path)
         transcript = unicodedata.normalize("NFC", transcript).strip()
         logger.info("%s transcript: %s", item["id"], transcript)
 
         observations: list[dict] = []
-        for _ in range(MAX_STEPS):
+        for step in range(MAX_STEPS):
             response = self.llm_agent.generate(_prompt(item, transcript, tools, observations))
             decision = self.llm_agent.parse_decision(response)
             if decision is None:
+                logger.warning("%s step %d: invalid LLM JSON: %s", item["id"], step + 1, response[:200])
                 observations.append({"error": "Output must be one valid JSON object."})
                 continue
+            logger.info("%s step %d decision: %s", item["id"], step + 1, decision)
             if decision.get("action") == "done":
                 break
             name = decision.get("name")
@@ -80,6 +82,7 @@ class Pipeline:
                 continue
             validation = env.validate(name, args)
             if not validation.get("ok"):
+                logger.warning("%s invalid call %s: %s", item["id"], name, validation.get("error"))
                 observations.append({"tool": name, "arguments": args, "error": validation.get("error")})
                 continue
             if any(call["name"] == name and call["arguments"] == args for call in env.get_tool_calls()):

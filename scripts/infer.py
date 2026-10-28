@@ -13,7 +13,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.asr import _load_model
+from src.asr import WhisperASR
 from src.llm_agent import LLMAgent
 from src.pipeline import Pipeline
 
@@ -26,7 +26,7 @@ def main() -> None:
     parser.add_argument("--split", choices=("train", "public_test", "private_test"), default="public_test")
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "submission.jsonl")
     parser.add_argument("--max-samples", type=int)
-    parser.add_argument("--whisper-model", default="turbo")
+    parser.add_argument("--whisper-model", default="openai/whisper-large-v3-turbo")
     parser.add_argument("--llm-model", default="Qwen/Qwen3-4B-Instruct-2507")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -51,7 +51,22 @@ def main() -> None:
     with (split_dir / f"{args.split}_tools_catalog.json").open(encoding="utf-8") as handle:
         catalog = json.load(handle)
 
-    pipeline = Pipeline(_load_model(args.whisper_model), LLMAgent(args.llm_model))
+    import torch
+    if not torch.cuda.is_available():
+        raise SystemExit(
+            f"PyTorch {torch.__version__} không hỗ trợ CUDA trong env này. "
+            "GPU có rảnh sau khi train xong cũng sẽ không được dùng bởi bản PyTorch này."
+        )
+    free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+    logger.info(
+        "GPU: %s; VRAM còn %.1f / %.1f GB",
+        torch.cuda.get_device_name(0), free_bytes / 1024**3, total_bytes / 1024**3,
+    )
+    if free_bytes < 3 * 1024**3:
+        raise SystemExit(
+            "GPU hiện còn dưới 3 GB VRAM. Hãy chạy lại khi tác vụ train khác đã giải phóng GPU."
+        )
+    pipeline = Pipeline(WhisperASR(args.whisper_model), LLMAgent(args.llm_model))
     count = 0
     elapsed_total = 0.0
     args.output.parent.mkdir(parents=True, exist_ok=True)

@@ -5,14 +5,14 @@ Một pipeline suy luận: audio tiếng Việt → ASR → LLM chọn tool → 
 ## Cấu trúc
 
 - `scripts/infer.py`: lệnh chạy duy nhất, đọc split và ghi bài nộp.
-- `src/asr.py`: nhận dạng giọng nói bằng faster-whisper.
+- `src/asr.py`: nhận dạng giọng nói bằng Whisper Turbo qua `transformers`.
 - `src/llm_agent.py`: Qwen3-4B-Instruct-2507, giải mã xác định và đọc quyết định JSON.
 - `src/pipeline.py`: lọc tool được phép, gọi tool từng bước, lấy call log và state hash thật.
 - `docs/context.txt`, `docs/evaluation.png`: bản ghi quy định và công thức chấm điểm.
 
 ## Chạy lần đầu
 
-1. Tạo môi trường Python và cài PyTorch phù hợp với máy, sau đó `pip install -r requirements.txt`.
+1. Tạo môi trường Python và cài PyTorch CUDA phù hợp với máy, sau đó `pip install -r requirements.txt`. Kiểm tra `torch.cuda.is_available()` trả về `True` trước khi chạy.
 2. Đặt gói dữ liệu BTC tại `data/train+public_test/train+public_test/` như hiện tại.
 3. Chạy thử một mẫu:
 
@@ -26,10 +26,10 @@ python scripts/infer.py --split public_test --max-samples 1 --output debug.jsonl
 python scripts/infer.py --split public_test --output submission.jsonl
 ```
 
-Mặc định: faster-whisper `turbo` (bản CTranslate2 của Whisper large-v3-turbo) và `Qwen/Qwen3-4B-Instruct-2507`. Lần chạy đầu sẽ cần tải model nếu cache chưa có. Để chạy offline, chuẩn bị sẵn model và truyền thư mục local:
+Mặc định: `openai/whisper-large-v3-turbo` và `Qwen/Qwen3-4B-Instruct-2507`. Lần chạy đầu sẽ cần tải model nếu cache chưa có. Để chạy offline, chuẩn bị sẵn model và truyền thư mục local:
 
 ```bash
-python scripts/infer.py --whisper-model models/whisper-ct2 --llm-model models/qwen3-4b
+python scripts/infer.py --whisper-model models/whisper --llm-model models/qwen3-4b
 ```
 
 Có thể đổi vị trí dữ liệu bằng `--data-root`. Tệp kết quả có đúng một dòng JSON cho mỗi mẫu được chạy, với `id`, `tool_calls` từ `env.get_tool_calls()` và `state_hash` từ `env.get_state_hash()`.

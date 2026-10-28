@@ -14,6 +14,11 @@ class LLMAgent:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "PyTorch hiện là bản CPU; LLM 4B không thể chạy kịp trên máy này. "
+                "Hãy cài PyTorch CUDA rồi kiểm tra torch.cuda.is_available()."
+            )
         quantization = None
         if load_in_4bit and torch.cuda.is_available():
             quantization = BitsAndBytesConfig(
@@ -24,7 +29,7 @@ class LLMAgent:
         self.torch = torch
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
         self.model = AutoModelForCausalLM.from_pretrained(
-            model_name, quantization_config=quantization, device_map="auto",
+            model_name, quantization_config=quantization, device_map={"": 0},
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
         )
         self.model.eval()

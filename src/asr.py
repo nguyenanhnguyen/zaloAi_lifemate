@@ -1,57 +1,44 @@
-"""ASR module dùng faster-whisper để transcribe audio."""
+"""Vietnamese speech recognition with the original Whisper Turbo checkpoint."""
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
 
-def _load_model(model_name: str = "turbo"):
-    """Tải faster-whisper model, fallback CPU nếu CUDA không khả dụng."""
-    from faster_whisper import WhisperModel  # type: ignore
-
-    try:
+class WhisperASR:
+    def __init__(self, model_name: str = "openai/whisper-large-v3-turbo") -> None:
         import torch
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-    except ImportError:
-        device = "cpu"
+        from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
-    compute_type = "int8_float16" if device == "cuda" else "int8"
-    logger.info("Loading Whisper model on %s with compute_type=%s", device, compute_type)
-    return WhisperModel(model_name, device=device, compute_type=compute_type)
+        self.torch = torch
+        # A 4 GB GPU needs its VRAM for the quantized LLM. Whisper Turbo on CPU
+        # is slower, but avoids loading two large models onto that GPU together.
+        gpu_memory = torch.cuda.get_device_properties(0).total_memory if torch.cuda.is_available() else 0
+        self.device = "cuda" if gpu_memory > 6 * 1024**3 else "cpu"
+        dtype = torch.float16 if self.device == "cuda" else torch.float32
+        logger.info("Loading ASR %s on %s", model_name, self.device)
+        self.processor = AutoProcessor.from_pretrained(model_name)
+        self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
+            model_name, torch_dtype=dtype, low_cpu_mem_usage=True
+        ).to(self.device)
+        self.model.eval()
 
+    def transcribe(self, audio_path: str | Path) -> str:
+        import soundfile as sf
 
-def transcribe(
-    audio_path: str | Path,
-    hotwords: list[str],
-    *,
-    model=None,
-    beam_size: int = 1,
-) -> str:
-    """Transcribe audio file, trả về text thuần.
-
-    Args:
-        audio_path: Đường dẫn file audio.
-        hotwords: Danh sách từ khoá ưu tiên (tên app, tool, địa chỉ...).
-        model: WhisperModel đã load sẵn (nếu None sẽ load mới).
-        beam_size: 1 = greedy decoding (deterministic, nhanh hơn).
-
-    Returns:
-        Chuỗi transcript đã ghép các segment.
-    """
-    if model is None:
-        model = _load_model()
-
-    # Dùng initial_prompt để boost hotwords vào decoder
-    initial_prompt = ", ".join(hotwords) if hotwords else None
-
-    segments, _info = model.transcribe(
-        str(audio_path),
-        beam_size=beam_size,
-        initial_prompt=initial_prompt,
-        language="vi",  # tiếng Việt
-    )
-    return " ".join(seg.text.strip() for seg in segments)
+        audio, sample_rate = sf.read(str(audio_path), dtype="float32")
+        if audio.ndim == 2:
+            audio = audio.mean(axis=1)
+        if sample_rate != 16000:
+            raise ValueError(f"Expected 16 kHz audio, got {sample_rate} Hz: {audio_path}")
+        inputs = self.processor(audio, sampling_rate=sample_rate, return_tensors="pt")
+        input_features = inputs.input_features.to(self.device, dtype=self.model.dtype)
+        with self.torch.inference_mode():
+            token_ids = self.model.generate(
+                input_features, language="vi", task="transcribe",
+                do_sample=False, num_beams=1, max_new_tokens=224,
+            )
+        return self.processor.batch_decode(token_ids, skip_special_tokens=True)[0].strip()
