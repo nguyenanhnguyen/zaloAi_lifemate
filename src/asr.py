@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
 class WhisperASR:
-    def __init__(self, model_name: str = "openai/whisper-large-v3-turbo") -> None:
+    def __init__(self, model_name: str = "openai/whisper-small") -> None:
         import torch
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
@@ -26,19 +27,28 @@ class WhisperASR:
         ).to(self.device)
         self.model.eval()
 
-    def transcribe(self, audio_path: str | Path) -> str:
+    def transcribe(self, audio_path: str | Path, *, deadline: float | None = None) -> str:
         import soundfile as sf
+        from transformers import StoppingCriteria, StoppingCriteriaList
+
+        class StopAtDeadline(StoppingCriteria):
+            def __call__(self, input_ids, scores, **kwargs):
+                return deadline is not None and time.perf_counter() >= deadline
 
         audio, sample_rate = sf.read(str(audio_path), dtype="float32")
         if audio.ndim == 2:
             audio = audio.mean(axis=1)
         if sample_rate != 16000:
             raise ValueError(f"Expected 16 kHz audio, got {sample_rate} Hz: {audio_path}")
-        inputs = self.processor(audio, sampling_rate=sample_rate, return_tensors="pt")
+        inputs = self.processor(
+            audio, sampling_rate=sample_rate, return_tensors="pt", return_attention_mask=True
+        )
         input_features = inputs.input_features.to(self.device, dtype=self.model.dtype)
+        attention_mask = inputs.attention_mask.to(self.device)
         with self.torch.inference_mode():
             token_ids = self.model.generate(
-                input_features, language="vi", task="transcribe",
-                do_sample=False, num_beams=1, max_new_tokens=224,
+                input_features, attention_mask=attention_mask, language="vi", task="transcribe",
+                do_sample=False, num_beams=1, max_new_tokens=128,
+                stopping_criteria=StoppingCriteriaList([StopAtDeadline()]),
             )
         return self.processor.batch_decode(token_ids, skip_special_tokens=True)[0].strip()

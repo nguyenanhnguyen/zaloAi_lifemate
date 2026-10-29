@@ -26,9 +26,19 @@ def main() -> None:
     parser.add_argument("--split", choices=("train", "public_test", "private_test"), default="public_test")
     parser.add_argument("--output", type=Path, default=PROJECT_ROOT / "submission.jsonl")
     parser.add_argument("--max-samples", type=int)
-    parser.add_argument("--whisper-model", default="openai/whisper-large-v3-turbo")
-    parser.add_argument("--llm-model", default="Qwen/Qwen3-4B-Instruct-2507")
+    parser.add_argument("--max-steps", type=int, default=3, help="Maximum LLM calls per sample (1-3)")
+    parser.add_argument("--max-seconds", type=float, default=28, help="Sample decoding time budget, at most 30 seconds")
+    parser.add_argument("--allow-shared-memory", action="store_true",
+                        help="Skip the free VRAM guard; Windows may use shared GPU memory")
+    parser.add_argument("--metrics-output", type=Path,
+                        help="Write per-sample timing and memory to a separate JSONL file")
+    parser.add_argument("--whisper-model", default=None)
+    parser.add_argument("--llm-model", default=None)
+    parser.add_argument("--low-memory", action="store_true",
+                        help="Use Whisper Small and Qwen2.5-3B-Instruct")
     args = parser.parse_args()
+    if not 1 <= args.max_steps <= 3 or not 0 < args.max_seconds <= 30:
+        parser.error("Use 1-3 steps and a positive time budget up to 30 seconds")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
     random.seed(42)
@@ -62,15 +72,33 @@ def main() -> None:
         "GPU: %s; VRAM còn %.1f / %.1f GB",
         torch.cuda.get_device_name(0), free_bytes / 1024**3, total_bytes / 1024**3,
     )
-    if free_bytes < 3 * 1024**3:
+    if free_bytes < 2.5 * 1024**3 and not args.allow_shared_memory:
         raise SystemExit(
-            "GPU hiện còn dưới 3 GB VRAM. Hãy chạy lại khi tác vụ train khác đã giải phóng GPU."
+            "GPU hiện còn dưới 2.5 GB VRAM. Hãy chạy lại khi tác vụ train khác đã giải phóng GPU."
         )
-    pipeline = Pipeline(WhisperASR(args.whisper_model), LLMAgent(args.llm_model))
+    if args.allow_shared_memory:
+        logger.warning("Allowing Windows shared GPU memory; measure speed against the 30 s/sample limit")
+    whisper_name = args.whisper_model or "openai/whisper-small"
+    llm_name = args.llm_model or "Qwen/Qwen2.5-3B-Instruct"
+    torch.set_num_threads(4)
+    pipeline = Pipeline(WhisperASR(whisper_name), LLMAgent(llm_name),
+                        max_steps=args.max_steps, max_seconds=args.max_seconds)
     count = 0
     elapsed_total = 0.0
+    slow_count = 0
+    process = None
+    try:
+        import psutil
+        process = psutil.Process()
+    except ImportError:
+        pass
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    with (split_dir / f"{args.split}.jsonl").open(encoding="utf-8") as source, args.output.open("w", encoding="utf-8") as target:
+    metrics = None
+    if args.metrics_output:
+        args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
+        metrics = args.metrics_output.open("w", encoding="utf-8")
+    try:
+      with (split_dir / f"{args.split}.jsonl").open(encoding="utf-8") as source, args.output.open("w", encoding="utf-8") as target:
         for line in source:
             if not line.strip():
                 continue
@@ -78,7 +106,9 @@ def main() -> None:
                 break
             item = json.loads(line)
             env = ToolEnv(args.split, item["id"], root=args.data_root)
+            torch.cuda.reset_peak_memory_stats(0)
             started = time.perf_counter()
+            failed = False
             try:
                 calls, state_hash = pipeline.infer(
                     item, env, catalog=catalog, audio_path=split_dir / item["audio"]
@@ -86,13 +116,31 @@ def main() -> None:
             except Exception:
                 logger.exception("Sample %s failed", item["id"])
                 calls, state_hash = env.get_tool_calls(), env.get_state_hash()
-            elapsed_total += time.perf_counter() - started
+                failed = True
+            elapsed = time.perf_counter() - started
+            elapsed_total += elapsed
+            slow_count += elapsed > 30
             target.write(json.dumps({"id": item["id"], "tool_calls": calls, "state_hash": state_hash}, ensure_ascii=False) + "\n")
             target.flush()
+            if metrics is not None:
+                record = {
+                    "id": item["id"], "seconds": round(elapsed, 3),
+                    "asr_seconds": round(pipeline.last_asr_seconds, 3),
+                    "llm_seconds": round(pipeline.last_llm_seconds, 3),
+                    "process_ram_mb": round(process.memory_info().rss / 1024**2) if process else None,
+                    "cuda_peak_allocated_mb": round(torch.cuda.max_memory_allocated(0) / 1024**2),
+                    "over_30_seconds": elapsed > 30, "failed": failed,
+                    "stop_reason": pipeline.stop_reason,
+                }
+                metrics.write(json.dumps(record, ensure_ascii=False) + "\n")
+                metrics.flush()
             count += 1
-            logger.info("Processed %d: %s (%.2fs average)", count, item["id"], elapsed_total / count)
+            logger.info("Processed %d: %s (%.2fs, %.2fs average)", count, item["id"], elapsed, elapsed_total / count)
+    finally:
+        if metrics is not None:
+            metrics.close()
 
-    logger.info("Wrote %d samples to %s", count, args.output)
+    logger.info("Wrote %d samples to %s; %d over 30 seconds", count, args.output, slow_count)
 
 
 if __name__ == "__main__":

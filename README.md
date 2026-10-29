@@ -5,8 +5,8 @@ Một pipeline suy luận: audio tiếng Việt → ASR → LLM chọn tool → 
 ## Cấu trúc
 
 - `scripts/infer.py`: lệnh chạy duy nhất, đọc split và ghi bài nộp.
-- `src/asr.py`: nhận dạng giọng nói bằng Whisper Turbo qua `transformers`.
-- `src/llm_agent.py`: Qwen3-4B-Instruct-2507, giải mã xác định và đọc quyết định JSON.
+- `src/asr.py`: nhận dạng giọng nói bằng Whisper Small qua `transformers`.
+- `src/llm_agent.py`: Qwen2.5-3B-Instruct 4-bit, giải mã xác định và đọc quyết định JSON.
 - `src/pipeline.py`: lọc tool được phép, gọi tool từng bước, lấy call log và state hash thật.
 - `docs/context.txt`, `docs/evaluation.png`: bản ghi quy định và công thức chấm điểm.
 
@@ -26,10 +26,22 @@ python scripts/infer.py --split public_test --max-samples 1 --output debug.jsonl
 python scripts/infer.py --split public_test --output submission.jsonl
 ```
 
-Mặc định: `openai/whisper-large-v3-turbo` và `Qwen/Qwen3-4B-Instruct-2507`. Lần chạy đầu sẽ cần tải model nếu cache chưa có. Để chạy offline, chuẩn bị sẵn model và truyền thư mục local:
+Đo thời gian và bộ nhớ khi cho Windows dùng shared GPU memory:
 
 ```bash
-python scripts/infer.py --whisper-model models/whisper --llm-model models/qwen3-4b
+python scripts/infer.py --split public_test --max-samples 1 --allow-shared-memory --metrics-output debug.metrics.jsonl --output debug.jsonl
+```
+
+Khi đã kiểm tra tốc độ, bỏ `--max-samples` và dùng `--output submission.jsonl` để chạy đủ tập. File metrics tách riêng, không nộp. Cột `cuda_peak_allocated_mb` là bộ nhớ PyTorch cấp phát, không gồm shared GPU memory do Windows quản lý; xem Task Manager để đo phần shared.
+
+Mặc định đã dùng cấu hình nhẹ. Cờ `--low-memory` cũ được giữ để các lệnh trước vẫn chạy.
+
+Giới hạn: tối đa 3 lượt LLM/mẫu, 160 token đầu ra/lượt và tổng context 4096 token. Ngân sách mặc định 28 giây/mẫu gồm ASR và LLM, không gồm tải/nạp model. Các bộ giải mã kiểm tra thời hạn giữa các bước sinh token; thời gian một phép tính đang chạy có thể khiến tổng thời gian vượt ngân sách. Khi hết ngân sách, ghi các tool calls thực sự đã gọi và state hash; điều này bảo đảm định dạng, không bảo đảm yêu cầu đã hoàn tất hay đạt điểm. Dùng `--max-steps` (1–3), `--max-seconds` (tối đa 30) để giảm giới hạn.
+
+Mặc định: `openai/whisper-small` và `Qwen/Qwen2.5-3B-Instruct`. Lần chạy đầu sẽ cần tải model nếu cache chưa có. Để chạy offline, chuẩn bị sẵn model và truyền thư mục local:
+
+```bash
+python scripts/infer.py --whisper-model models/whisper --llm-model models/qwen2.5-3b
 ```
 
 Có thể đổi vị trí dữ liệu bằng `--data-root`. Tệp kết quả có đúng một dòng JSON cho mỗi mẫu được chạy, với `id`, `tool_calls` từ `env.get_tool_calls()` và `state_hash` từ `env.get_state_hash()`.

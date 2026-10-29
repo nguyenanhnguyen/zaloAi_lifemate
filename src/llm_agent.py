@@ -5,12 +5,13 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 
 logger = logging.getLogger(__name__)
 
 
 class LLMAgent:
-    def __init__(self, model_name: str = "Qwen/Qwen3-4B-Instruct-2507", load_in_4bit: bool = True):
+    def __init__(self, model_name: str = "Qwen/Qwen2.5-3B-Instruct", load_in_4bit: bool = True):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
 
@@ -31,20 +32,43 @@ class LLMAgent:
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name, quantization_config=quantization, device_map={"": 0},
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+            attn_implementation="sdpa",
         )
         self.model.eval()
+        for flag in ("temperature", "top_p", "top_k"):
+            setattr(self.model.generation_config, flag, None)
 
-    def generate(self, prompt: str, max_new_tokens: int = 256) -> str:
+    def generate(self, prompt: str, max_new_tokens: int = 160, *, deadline: float | None = None) -> str:
+        from transformers import StoppingCriteria, StoppingCriteriaList
         messages = [
             {"role": "system", "content": "Reply with one JSON object only."},
             {"role": "user", "content": prompt},
         ]
         chat = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         inputs = self.tokenizer(chat, return_tensors="pt").to(self.model.device)
+        prompt_length = inputs["input_ids"].shape[1]
+        if prompt_length + max_new_tokens > 4096:
+            raise ValueError(f"Prompt too long: {prompt_length} tokens; limit is 4096 including output")
+        if deadline is not None and time.perf_counter() >= deadline:
+            raise TimeoutError("Sample time budget exhausted before LLM generation")
+        tokenizer = self.tokenizer
+
+        class StopDecision(StoppingCriteria):
+            def __call__(self, input_ids, scores, **kwargs):
+                if deadline is not None and time.perf_counter() >= deadline:
+                    return True
+                text = tokenizer.decode(input_ids[0][prompt_length:], skip_special_tokens=True).strip()
+                try:
+                    data = json.loads(text)
+                    return isinstance(data, dict) and "action" in data
+                except ValueError:
+                    return False
+
         with self.torch.inference_mode():
             output = self.model.generate(
                 **inputs, max_new_tokens=max_new_tokens, do_sample=False,
                 pad_token_id=self.tokenizer.eos_token_id,
+                stopping_criteria=StoppingCriteriaList([StopDecision()]),
             )
         tokens = output[0][inputs["input_ids"].shape[1]:]
         return self.tokenizer.decode(tokens, skip_special_tokens=True).strip()

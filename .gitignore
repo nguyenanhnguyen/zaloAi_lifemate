@@ -4,4 +4,5 @@ models/
 checkpoints/
 submission.jsonl
 debug.jsonl
+debug.metrics.jsonl
 __pycache__/
