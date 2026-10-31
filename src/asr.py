@@ -29,18 +29,19 @@ ASR_REVISION = "b9136a44b5f2ca664bd0b8f74baecf1715f6eeeb"
 
 class PhoWhisperASR:
     def __init__(self, model_name: str, *, max_new_tokens: int = 256, beams: int = 1,
-                 gpu_headroom_gib: float = 6.0) -> None:
+                 device: str = "cuda") -> None:
         import torch
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
+        if device not in {"cuda", "cpu"}:
+            raise ValueError("device must be 'cuda' or 'cpu'")
         self.torch = torch
         self.max_new_tokens = max_new_tokens
         self.beams = beams
-        # The LLM (4-5B) is the far bigger GPU consumer and loads after this. On a GPU too
-        # small to comfortably hold both (<~6 GiB free, e.g. a 4 GB laptop card), leave the ASR
-        # model on CPU instead of starving the LLM's activation memory and OOM-ing.
-        free_vram = torch.cuda.mem_get_info()[0] if torch.cuda.is_available() else 0
-        self.device = "cuda" if free_vram > gpu_headroom_gib * 1024**3 else "cpu"
+        # ASR is only ~1% of a sample's time (measured 15-17 s/sample on GPU, ~25 s on CPU), so on
+        # a small card it is worth running here on CPU to leave every byte of VRAM to the LLM,
+        # whose speed collapses the moment its weights spill out of VRAM. See EXPERIMENTS.md.
+        self.device = device if torch.cuda.is_available() else "cpu"
         self.dtype = torch.float16 if self.device == "cuda" else torch.float32
         logger.info("Loading ASR %s on %s (dtype=%s)", model_name, self.device, self.dtype)
         self.processor = AutoProcessor.from_pretrained(model_name, local_files_only=True)

@@ -31,10 +31,26 @@ def _compact_schema(value):
     return value
 
 
-def _keywords(value: str) -> set[str]:
-    value = unicodedata.normalize("NFD", str(value).lower())
-    value = "".join(c for c in value if unicodedata.category(c) != "Mn").replace("đ", "d")
-    return set(re.findall(r"[a-z0-9]+", value))
+def _fold(value: str) -> str:
+    """Lowercase, strip Vietnamese accents, collapse to letters/digits/spaces."""
+    value = unicodedata.normalize("NFD", str(value).lower()).replace("đ", "d").replace("Đ", "d")
+    value = "".join(c for c in value if unicodedata.category(c) != "Mn")
+    return " ".join(re.findall(r"[a-z0-9]+", value))
+
+
+def _trigrams(value: str) -> set[str]:
+    """Character 3-grams of folded text. Robust to the spelling errors Vietnamese ASR makes:
+    'bao thich' vs 'bao thuc' still share most trigrams, where token equality shares nothing."""
+    folded = f" {_fold(value)} "
+    return {folded[i:i + 3] for i in range(max(0, len(folded) - 2))}
+
+
+def _relevance(request: set[str], text: str) -> float:
+    """Dice overlap between the request's trigrams and a candidate's, in [0, 1]."""
+    other = _trigrams(text)
+    if not request or not other:
+        return 0.0
+    return 2 * len(request & other) / (len(request) + len(other))
 
 
 class InvalidDecision(ValueError):
@@ -66,40 +82,59 @@ def _parse_decision(text: str) -> dict:
         return {"tool_calls": calls, "content": ""}
     if "<tool_call>" in text:
         raise InvalidDecision("Unclosed tool call")
+    # The model sometimes emits a call as bare prose, e.g. `sys.ask_missing_info({"tool_name": ...})`
+    # or a raw JSON object. Treating that as a final answer silently submits zero tool calls and
+    # scores 0, so recover the intent instead of discarding it.
+    loose = re.search(r"([a-z_]+\.[a-z_]+)\s*\(\s*(\{.*\})\s*\)", text, re.S | re.I)
+    if loose:
+        try:
+            args = json.loads(loose.group(2))
+        except ValueError as exc:
+            raise InvalidDecision(f"Unparsable loose tool call: {text[:160]}") from exc
+        if isinstance(args, dict):
+            return {"tool_calls": [{"id": "call_0", "type": "function",
+                                    "function": {"name": loose.group(1),
+                                                 "arguments": json.dumps(args, ensure_ascii=False)}}],
+                    "content": ""}
+    if re.match(r"\s*[\[{]", text) or '"tool_name"' in text or '"arguments"' in text:
+        raise InvalidDecision(f"Looks like a malformed tool call, not a final answer: {text[:160]}")
     return {"tool_calls": [], "content": text}
 
 
 class LLMAgent:
     """Own one Qwen3 model on GPU; reuse the KV-cache prefix across tool turns of one sample."""
 
-    def __init__(self, model_name: str | None = None, *, context_size: int = 8192,
-                 max_new_tokens: int = 384, vram_4bit_threshold_gib: float = 10.0) -> None:
+    def __init__(self, model_name: str | None = None, *, context_size: int = 4096,
+                 max_new_tokens: int = 256, precision: str = "bf16",
+                 prompt_token_budget: int = 1800) -> None:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
+        if precision not in {"bf16", "4bit"}:
+            raise ValueError("precision must be 'bf16' or '4bit'")
         self.torch = torch
         self.context_size = context_size
         self.max_new_tokens = max_new_tokens
+        self.precision = precision
+        self.prompt_token_budget = prompt_token_budget
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
         model = model_name or model_path(LLM_REPO, LLM_REVISION)
-        # The A30 (24 GiB) runs full bf16; a dev GPU too small for the 4B model in bf16
-        # (<10 GiB total, e.g. a 4 GB laptop card) auto-falls to 4-bit NF4 instead of OOM-ing
-        # or silently spilling into slow/unstable shared GPU memory under load.
+        # Precision decides whether the weights fit in VRAM, which dominates speed far more than
+        # raw GPU power: bf16 is 8.0 GB for this 4B model, so on a 4 GB card ~4 GB spills into
+        # system RAM and every generated token streams it back over PCIe (measured: ~900 s per
+        # LLM turn). 4-bit NF4 is ~2.3 GB and stays resident (measured: see EXPERIMENTS.md).
+        # bf16 is what the organisers' A30 runs; 4bit is the dev-speed option for small GPUs.
         quantization_config = None
-        if self.device == "cuda":
-            total_vram_gib = torch.cuda.get_device_properties(0).total_memory / 1024**3
-            if total_vram_gib < vram_4bit_threshold_gib:
-                from transformers import BitsAndBytesConfig
-                quantization_config = BitsAndBytesConfig(
-                    load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                    bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
-                )
-                logger.warning("GPU has %.1f GiB VRAM (<%.0f GiB): loading LLM in 4-bit NF4. "
-                               "The frozen Docker solution for the A30 must use full bf16.",
-                               total_vram_gib, vram_4bit_threshold_gib)
-        logger.info("Loading LLM %s on %s (dtype=%s, 4bit=%s)", model, self.device, self.dtype,
-                    quantization_config is not None)
+        if precision == "4bit":
+            if self.device != "cuda":
+                raise ValueError("4-bit quantization requires a CUDA GPU")
+            from transformers import BitsAndBytesConfig
+            quantization_config = BitsAndBytesConfig(
+                load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.bfloat16, bnb_4bit_use_double_quant=True,
+            )
+        logger.info("Loading LLM %s on %s (precision=%s)", model, self.device, precision)
         self.tokenizer = AutoTokenizer.from_pretrained(model, local_files_only=True)
         self.llm = AutoModelForCausalLM.from_pretrained(
             model, dtype=self.dtype, low_cpu_mem_usage=True, local_files_only=True,
@@ -119,46 +154,67 @@ class LLMAgent:
         )
         return encoded["input_ids"].shape[1]
 
-    def fit_tools(self, messages: list[dict], tools: list[dict], request_text: str = "") -> list[dict]:
-        """Bound the rendered prompt before it reaches the GPU (see EXPERIMENTS.md: a 47-tool
-        catalog alone renders to ~19 KB / several thousand tokens uncompacted, which both wastes
-        the 30 s/sample budget and can OOM a small GPU during attention). Tool schemas kept are
-        always complete; only prose and, as a last resort, less relevant tools are dropped.
+    def fit_tools(self, messages: list[dict], tools: list[dict], request_text: str = "",
+                  app_hints: dict[str, str] | None = None) -> list[dict]:
+        """Keep the rendered prompt near `prompt_token_budget`, not merely inside the context.
+
+        Prefill cost explodes with prompt length on a small GPU because this PyTorch build has no
+        flash-attention kernel, so attention peaks well past VRAM and spills. Measured on an RTX
+        2050 4 GB (4-bit Qwen3-4B, 32 new tokens): 1k prompt 5.5 s / 3.05 GiB peak, 2k 28.3 s /
+        4.11 GiB, 3.9k 252.5 s / 7.54 GiB. Staying near ~1.4k tokens is therefore worth far more
+        than any other optimisation here. Tool schemas kept are always complete; only prose and,
+        as a last resort, less relevant tools are dropped.
         """
-        limit = self.context_size - self.max_new_tokens
+        limit = min(self.prompt_token_budget, self.context_size - self.max_new_tokens)
         if self._prompt_tokens(messages, tools) <= limit:
             return tools
         compact = copy.deepcopy(tools)
         for tool in compact:
             tool["function"]["parameters"] = _compact_schema(tool["function"].get("parameters", {}))
-            tool["function"]["description"] = tool["function"].get("description", "")[:100]
+            # Drop the "Returns: ..." tail and keep the description short: every token saved here
+            # lets another whole app stay in the prompt, and app coverage matters far more for
+            # correctness than per-tool prose (a wrongly routed app loses the sample outright).
+            summary = re.split(r"\s*Returns:", tool["function"].get("description", ""))[0]
+            tool["function"]["description"] = summary[:60]
         if self._prompt_tokens(messages, compact) <= limit:
             logger.info("Tool prompt compacted to fit %d tokens", limit)
             return compact
-        query = _keywords(request_text)
-        ranked = sorted(range(len(compact)), key=lambda i: (
-            compact[i]["function"]["name"] == "sys.ask_missing_info",
-            len(_keywords(compact[i]["function"]["name"].replace("_", " ") + " "
-                          + compact[i]["function"]["description"]) & query),
-        ), reverse=True)
-        mandatory = {i for i, tool in enumerate(compact) if tool["function"]["name"] == "sys.ask_missing_info"}
+        # Route by app, not by individual tool: a task needs an app's read AND write tools together
+        # (smart_home.get_status to find a device_id, then smart_home.light_set to use it), so
+        # dropping half an app is worse than dropping a whole irrelevant one. Rank apps against the
+        # Vietnamese request using the catalog's own Vietnamese names/descriptions, which `app_hints`
+        # supplies; English tool identifiers share almost nothing with a Vietnamese transcript.
+        request = _trigrams(request_text)
+        hints = app_hints or {}
+        by_app: dict[str, list[int]] = {}
+        for index, tool in enumerate(compact):
+            by_app.setdefault(tool["function"]["name"].split(".")[0], []).append(index)
+        mandatory = {i for i, tool in enumerate(compact)
+                     if tool["function"]["name"].startswith("sys.")}
+        ranked_apps = sorted(
+            (app for app in by_app if app != "sys"),
+            key=lambda app: _relevance(request, hints.get(app, app) + " " + " ".join(
+                compact[i]["function"]["description"] for i in by_app[app])),
+            reverse=True)
 
-        def choose(count: int) -> list[dict]:
-            keep = set(ranked[:count]) | mandatory
+        def choose(app_count: int) -> list[dict]:
+            keep = set(mandatory)
+            for app in ranked_apps[:app_count]:
+                keep.update(by_app[app])
             return [tool for i, tool in enumerate(compact) if i in keep]
 
-        low, high = 0, len(compact)
+        low, high = 0, len(ranked_apps)
         while low < high:
             middle = (low + high + 1) // 2
             if self._prompt_tokens(messages, choose(middle)) <= limit:
                 low = middle
             else:
                 high = middle - 1
-        selected = choose(low)
-        if not selected or self._prompt_tokens(messages, selected) > limit:
-            raise ValueError(f"Cannot fit tool schemas within {limit} tokens even after routing")
-        logger.warning("Tool prompt routed to %d/%d tools to fit %d tokens",
-                       len(selected), len(tools), limit)
+        selected = choose(max(low, 1))  # never route down to sys-only: that guarantees a wrong answer
+        if not selected:
+            raise ValueError(f"Cannot fit any tool schema within {limit} tokens")
+        logger.warning("Tool prompt routed to %d/%d tools from apps %s (budget %d tokens)",
+                       len(selected), len(tools), ranked_apps[:max(low, 1)], limit)
         return selected
 
     def reset(self) -> None:
@@ -170,7 +226,10 @@ class LLMAgent:
         pass  # No subprocess to tear down; kept for interface parity with the old backend.
 
     def generate(self, messages: list[dict], *, tools: list[dict], deadline: float) -> dict:
+        from torch.nn.attention import SDPBackend, sdpa_kernel
         from transformers import StoppingCriteria, StoppingCriteriaList
+
+        _SDPA_BACKENDS = [SDPBackend.EFFICIENT_ATTENTION, SDPBackend.MATH]
 
         class StopAtDeadline(StoppingCriteria):
             def __call__(self, input_ids, scores, **kwargs):
@@ -199,7 +258,9 @@ class LLMAgent:
         if prefix:
             inputs["input_ids"] = inputs["input_ids"][:, prefix:]
         uncached_length = inputs["input_ids"].shape[1]
-        with self.torch.inference_mode():
+        # This PyTorch build ships no flash-attention kernel, and the math backend materialises the
+        # full attention matrix (measured 7.54 GiB peak for a 3.9k prompt). Prefer mem-efficient.
+        with self.torch.inference_mode(), sdpa_kernel(_SDPA_BACKENDS):
             output = self.llm.generate(
                 **inputs, past_key_values=self.cache, use_cache=True,
                 return_dict_in_generate=True, max_new_tokens=self.max_new_tokens,

@@ -2,7 +2,7 @@
 torch>=2.6
 transformers>=5.13.0
 accelerate>=1.10,<2
-bitsandbytes>=0.50  # only loaded when the local GPU is too small for bf16 (<10 GiB VRAM)
+bitsandbytes>=0.50  # only for --llm-precision 4bit (small-VRAM dev machines); A30 runs bf16
 huggingface-hub>=0.26
 numpy>=1.26.0
 soundfile>=0.13.0

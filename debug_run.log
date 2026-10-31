@@ -1,0 +1,51 @@
+2026-10-31 13:45:05,530 WARNING Local quality run: 3600 s/sample. Competition limit is 30 s on A30.
+2026-10-31 13:45:05,674 INFO Will process 5 audio samples; already completed 0
+2026-10-31 13:45:05,677 WARNING LLM precision=4bit (not the A30's bf16): local speed configuration, scores may differ slightly from a bf16 submission. Pass --llm-precision bf16 to match.
+2026-10-31 13:45:11,231 INFO Loading ASR D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--vinai--PhoWhisper-large\snapshots\b9136a44b5f2ca664bd0b8f74baecf1715f6eeeb on cpu (dtype=torch.float32)
+Loading weights:   0%|          | 0/1260 [00:00<?, ?it/s]Loading weights: 100%|██████████| 1260/1260 [00:00<00:00, 32002.08it/s]
+2026-10-31 13:45:11,999 INFO Loading LLM D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--Qwen--Qwen3-4B-Instruct-2507\snapshots\cdbee75f17c01a7cc42f958dc650907174af0554 on cuda (precision=4bit)
+D:\z_DaiHoc\a_zaloAI\env\Lib\site-packages\transformers\modeling_utils.py:5107: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\pytorch\c10/cuda/CUDAAllocatorConfig.h:39.)
+  _ = torch.empty(int(byte_count // 2), dtype=torch.float16, device=device, requires_grad=False)
+Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]Loading weights:   0%|          | 1/398 [00:00<02:18,  2.87it/s]Loading weights:   1%|          | 3/398 [00:00<00:51,  7.65it/s]Loading weights:   4%|▎         | 14/398 [00:00<00:10, 36.89it/s]Loading weights:   6%|▋         | 25/398 [00:00<00:06, 57.67it/s]Loading weights:   9%|▉         | 37/398 [00:00<00:04, 75.07it/s]Loading weights:  12%|█▏        | 48/398 [00:00<00:04, 83.79it/s]Loading weights:  15%|█▍        | 59/398 [00:00<00:03, 88.89it/s]Loading weights:  18%|█▊        | 71/398 [00:01<00:03, 94.75it/s]Loading weights:  21%|██        | 82/398 [00:01<00:03, 97.54it/s]Loading weights:  24%|██▍       | 96/398 [00:01<00:02, 109.03it/s]Loading weights:  27%|██▋       | 108/398 [00:01<00:02, 110.93it/s]Loading weights:  30%|███       | 120/398 [00:01<00:02, 108.72it/s]Loading weights:  33%|███▎      | 132/398 [00:01<00:02, 110.42it/s]Loading weights:  36%|███▌      | 144/398 [00:01<00:02, 110.61it/s]Loading weights:  39%|███▉      | 156/398 [00:01<00:02, 104.75it/s]Loading weights:  42%|████▏     | 168/398 [00:01<00:02, 103.84it/s]Loading weights:  45%|████▍     | 179/398 [00:02<00:02, 103.77it/s]Loading weights:  48%|████▊     | 191/398 [00:02<00:02, 102.04it/s]Loading weights:  51%|█████     | 203/398 [00:02<00:01, 102.46it/s]Loading weights:  54%|█████▍    | 214/398 [00:02<00:01, 102.76it/s]Loading weights:  58%|█████▊    | 229/398 [00:02<00:01, 115.20it/s]Loading weights:  61%|██████    | 241/398 [00:02<00:01, 116.29it/s]Loading weights:  64%|██████▎   | 253/398 [00:02<00:01, 111.29it/s]Loading weights:  67%|██████▋   | 265/398 [00:02<00:01, 109.53it/s]Loading weights:  70%|██████▉   | 277/398 [00:02<00:01, 110.35it/s]Loading weights:  73%|███████▎  | 289/398 [00:03<00:01, 108.75it/s]Loading weights:  75%|███████▌  | 300/398 [00:03<00:00, 105.23it/s]Loading weights:  78%|███████▊  | 311/398 [00:03<00:00, 102.89it/s]Loading weights:  81%|████████  | 322/398 [00:03<00:00, 98.62it/s] Loading weights:  84%|████████▎ | 333/398 [00:03<00:00, 94.08it/s]Loading weights:  86%|████████▋ | 344/398 [00:03<00:00, 97.48it/s]Loading weights:  89%|████████▉ | 355/398 [00:03<00:00, 95.19it/s]Loading weights:  92%|█████████▏| 366/398 [00:03<00:00, 89.77it/s]Loading weights:  95%|█████████▍| 377/398 [00:04<00:00, 91.66it/s]Loading weights:  97%|█████████▋| 388/398 [00:04<00:00, 94.18it/s]Loading weights: 100%|██████████| 398/398 [00:04<00:00, 94.12it/s]
+[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
+[transformers] A custom logits processor of type <class 'transformers.generation.logits_process.SuppressTokensLogitsProcessor'> has been passed to `.generate()`, but it was also created in `.generate()`, given its parameterization. The custom <class 'transformers.generation.logits_process.SuppressTokensLogitsProcessor'> will take precedence. Please check the docstring of <class 'transformers.generation.logits_process.SuppressTokensLogitsProcessor'> to see related `.generate()` flags.
+[transformers] A custom logits processor of type <class 'transformers.generation.logits_process.SuppressTokensAtBeginLogitsProcessor'> has been passed to `.generate()`, but it was also created in `.generate()`, given its parameterization. The custom <class 'transformers.generation.logits_process.SuppressTokensAtBeginLogitsProcessor'> will take precedence. Please check the docstring of <class 'transformers.generation.logits_process.SuppressTokensAtBeginLogitsProcessor'> to see related `.generate()` flags.
+[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer WhisperTokenizer. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
+2026-10-31 13:45:39,368 INFO public_0002 transcript: đặt xe bốn chỗ thử công ty đi khám răng chiều nay đặt ngay bây giờ nhé.
+2026-10-31 13:45:39,455 WARNING Tool prompt routed to 5/48 tools from apps ['ride_hailing'] (budget 1800 tokens)
+2026-10-31 13:45:51,281 INFO public_0002 step 1: ride_hailing.get_quotes {'pickup': '77 Hoàng Văn Thụ, Phú Nhuận, TP.HCM', 'dropoff': 'Tòa nhà Blue Pearl, Quận 7, TP.HCM', 'vehicle': 'car4'}
+2026-10-31 13:45:51,341 WARNING Tool prompt routed to 5/48 tools from apps ['ride_hailing'] (budget 1800 tokens)
+2026-10-31 13:46:00,693 INFO public_0002 step 2: ride_hailing.book {'pickup': '77 Hoàng Văn Thụ, Phú Nhuận, TP.HCM', 'dropoff': 'Tòa nhà Blue Pearl, Quận 7, TP.HCM', 'vehicle': 'car4', 'payment': 'ewallet'}
+2026-10-31 13:46:00,750 WARNING Tool prompt routed to 5/48 tools from apps ['ride_hailing'] (budget 1800 tokens)
+2026-10-31 13:46:01,894 INFO public_0002 final: DONE
+2026-10-31 13:46:01,894 INFO public_0002 stopped: done (3 LLM turns)
+2026-10-31 13:46:01,904 INFO Processed 1/5: public_0002 (40.4 s; average 40.4 s)
+[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
+2026-10-31 13:46:22,954 INFO public_0003 transcript: nếu may mới thì dời chạy vốn sáng may mốn hai tiếng nhắn nhắt em nhắn báo giờ mới ra hư nha không mới thì thôi.
+2026-10-31 13:46:23,077 WARNING Tool prompt routed to 5/50 tools from apps ['ride_hailing'] (budget 1800 tokens)
+2026-10-31 13:46:32,120 INFO public_0003 step 1: sys.ask_missing_info {'tool_name': 'ride_hailing.get_quotes', 'params': ['pickup', 'dropoff', 'vehicle']}
+2026-10-31 13:46:32,120 INFO public_0003 stopped: asked_missing (1 LLM turns)
+2026-10-31 13:46:32,132 INFO Processed 2/5: public_0003 (30.2 s; average 35.3 s)
+[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
+2026-10-31 13:46:48,570 INFO public_0004 transcript: đặc bảo thích thuộc vào bãi bá chèn giúp minh nghỉ.
+2026-10-31 13:46:48,640 WARNING Tool prompt routed to 9/49 tools from apps ['tv', 'alarm'] (budget 1800 tokens)
+2026-10-31 13:47:12,088 INFO public_0004 step 1: sys.ask_missing_info {'tool_name': 'alarm.create', 'params': ['label', 'time', 'repeat']}
+2026-10-31 13:47:12,088 INFO public_0004 stopped: asked_missing (1 LLM turns)
+2026-10-31 13:47:12,104 INFO Processed 3/5: public_0004 (40.0 s; average 36.8 s)
+[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
+2026-10-31 13:47:28,632 INFO public_0005 transcript: mai mà mưa thì khuỷu yến đã bóng sáng gọi báo lan nhé.
+2026-10-31 13:47:28,706 WARNING Tool prompt routed to 8/60 tools from apps ['gold_price', 'ride_hailing', 'phone'] (budget 1800 tokens)
+2026-10-31 13:47:59,240 INFO public_0005 step 1: sys.ask_missing_info {'tool_name': 'phone.call', 'params': ['contact_id']}
+2026-10-31 13:47:59,240 INFO public_0005 stopped: asked_missing (1 LLM turns)
+2026-10-31 13:47:59,251 INFO Processed 4/5: public_0005 (47.1 s; average 39.4 s)
+[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
+2026-10-31 13:48:40,564 INFO public_0006 transcript: cái còn lại nếu may mưa thì giờ muộn nửa tiếng không mưa thì giữ nghiêng.
+2026-10-31 13:48:40,624 WARNING Tool prompt routed to 9/31 tools from apps ['banking', 'gold_price', 'weather'] (budget 1800 tokens)
+2026-10-31 13:49:21,656 INFO public_0006 step 1: weather.get_current {'location': 'Hà Nội'}
+2026-10-31 13:49:21,692 WARNING Tool prompt routed to 9/31 tools from apps ['banking', 'gold_price', 'weather'] (budget 1800 tokens)
+2026-10-31 13:49:28,359 INFO public_0006 step 2: weather.get_forecast {'location': 'Hà Nội', 'date': '2026-11-04'}
+2026-10-31 13:49:28,388 WARNING Tool prompt routed to 7/31 tools from apps ['banking', 'gold_price'] (budget 1800 tokens)
+2026-10-31 13:49:35,036 INFO public_0006 final: Mưa không xảy ra vào ngày mai. Vì vậy, sẽ không cần điều chỉnh thời gian. Giữ nguyên lịch trình như hiện tại.
+2026-10-31 13:49:35,037 INFO public_0006 stopped: done (3 LLM turns)
+2026-10-31 13:49:35,048 INFO Processed 5/5: public_0006 (95.8 s; average 50.7 s)
+2026-10-31 13:49:35,049 INFO Wrote 5 samples to debug.jsonl; 0 failed; 5 over 30 s

@@ -12,6 +12,11 @@ import time
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
+# Must be set before CUDA initializes: reduces allocator fragmentation that otherwise OOMs on a
+# near-full small GPU even when mem_get_info reports enough free. torch >=2.7 renamed the env var
+# to PYTORCH_ALLOC_CONF; set both names since this venv's exact torch version may vary.
+os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 from src.asr import ASR_REPO, ASR_REVISION, PhoWhisperASR
 from src.llm_agent import LLM_REPO, LLM_REVISION, LLMAgent
 from src.models import model_path
@@ -24,7 +29,7 @@ def main() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    parser = argparse.ArgumentParser(description="ZAC LifeMate: Qwen3-ASR-0.6B + Qwen3-4B-Instruct-2507, GPU")
+    parser = argparse.ArgumentParser(description="ZAC LifeMate: PhoWhisper-large + Qwen3-4B-Instruct-2507, GPU")
     parser.add_argument("--prepare-only", action="store_true", help="Download pinned models without running inference")
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "data/train+public_test/train+public_test")
     parser.add_argument("--split", choices=("train", "public_test", "private_test"), default="public_test")
@@ -35,14 +40,26 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true", help="Continue an output containing a valid completed prefix")
     parser.add_argument("--max-steps", type=int, default=8, help="Bounded LLM turns per sample (1-16)")
     parser.add_argument("--max-seconds", type=float, default=30, help="Sample budget; 30 matches the competition's A30 rule")
-    parser.add_argument("--max-new-tokens", type=int, default=384)
-    parser.add_argument("--context-size", type=int, default=8192, help="Total input/output context, at most 16384")
+    parser.add_argument("--max-new-tokens", type=int, default=256)
+    parser.add_argument("--prompt-token-budget", type=int, default=1800,
+                        help="Route/compact tool schemas down to about this many prompt tokens. "
+                             "Prefill cost explodes past ~2k tokens on a small GPU (measured: 1k "
+                             "prompt 5.5 s vs 3.9k prompt 252 s), so this is the main speed lever.")
+    parser.add_argument("--context-size", type=int, default=4096,
+                        help="Total input/output context, at most 16384. Matches the Kaggle notebook's "
+                             "T4 value; raising it noticeably increases peak attention memory per LLM turn.")
     parser.add_argument("--asr-max-new-tokens", type=int, default=256)
     parser.add_argument("--asr-model", default=ASR_REPO, help="HF repo id or local directory")
     parser.add_argument("--llm-model", help="Local HF directory; default is pinned Qwen3-4B-Instruct-2507")
+    parser.add_argument("--llm-precision", choices=("auto", "bf16", "4bit"), default="auto",
+                        help="bf16 matches the organisers' A30. 4bit (~2.3 GB vs 8.0 GB) keeps the "
+                             "weights inside a small card's VRAM instead of streaming them over "
+                             "PCIe every token. auto: 4bit when the GPU has under 10 GiB VRAM.")
+    parser.add_argument("--asr-device", choices=("auto", "cuda", "cpu"), default="auto",
+                        help="auto: CPU when the GPU has under 10 GiB VRAM, so the LLM keeps all of it")
     args = parser.parse_args()
-    if not 1 <= args.max_steps <= 16 or not 0 < args.max_seconds <= 3600:
-        parser.error("Use 1-16 turns and 0 < --max-seconds <= 3600")
+    if not 1 <= args.max_steps <= 16 or not 0 < args.max_seconds <= 86400:
+        parser.error("Use 1-16 turns and 0 < --max-seconds <= 86400")
     if not 1024 <= args.context_size <= 16384 or not 64 <= args.max_new_tokens < args.context_size:
         parser.error("Context must be 1024-16384 tokens; output must fit inside context")
     if args.max_samples is not None and args.max_samples < 1:
@@ -98,9 +115,18 @@ def main() -> None:
         logger.info("All requested samples already present: %s", args.output)
         return
     logger.info("Will process %d audio samples; already completed %d", len(items), completed)
+    # Small cards cannot hold the 4B LLM in bf16 (8.0 GB); spilled weights stream over PCIe every
+    # token and cost ~900 s per LLM turn instead of seconds. Pick the resident configuration.
+    small_gpu = torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_memory < 10 * 1024**3
+    precision = args.llm_precision if args.llm_precision != "auto" else ("4bit" if small_gpu else "bf16")
+    asr_device = args.asr_device if args.asr_device != "auto" else ("cpu" if small_gpu else "cuda")
+    if precision != "bf16":
+        logger.warning("LLM precision=%s (not the A30's bf16): local speed configuration, scores may "
+                       "differ slightly from a bf16 submission. Pass --llm-precision bf16 to match.", precision)
     asr_path = args.asr_model if Path(args.asr_model).is_dir() else model_path(args.asr_model, ASR_REVISION)
-    asr = PhoWhisperASR(asr_path, max_new_tokens=args.asr_max_new_tokens)
-    llm = LLMAgent(args.llm_model, context_size=args.context_size, max_new_tokens=args.max_new_tokens)
+    asr = PhoWhisperASR(asr_path, max_new_tokens=args.asr_max_new_tokens, device=asr_device)
+    llm = LLMAgent(args.llm_model, context_size=args.context_size, max_new_tokens=args.max_new_tokens,
+                   precision=precision, prompt_token_budget=args.prompt_token_budget)
     pipeline = Pipeline(asr, llm, max_steps=args.max_steps, max_seconds=args.max_seconds)
     metrics_path = args.metrics_output or args.output.with_suffix(".metrics.jsonl")
     if metrics_path.resolve() == args.output.resolve():
@@ -147,7 +173,10 @@ def main() -> None:
                           "whole_gpu_used_mb": round((total-free) / 1024**2),
                           "over_30_seconds": elapsed > 30, "failed": failed,
                           "stop_reason": pipeline.stop_reason,
-                          "asr_model": args.asr_model, "llm_model": args.llm_model or LLM_REPO}
+                          "asr_model": args.asr_model, "llm_model": args.llm_model or LLM_REPO,
+                          "llm_precision": precision, "asr_device": asr_device,
+                          "context_size": args.context_size, "max_new_tokens": args.max_new_tokens,
+                          "prompt_token_budget": args.prompt_token_budget}
                 metrics.write(json.dumps(record, ensure_ascii=False) + "\n")
                 metrics.flush()
                 logger.info("Processed %d/%d: %s (%.1f s; average %.1f s)",

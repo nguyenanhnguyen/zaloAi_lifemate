@@ -4,6 +4,82 @@ Ghi lại từng lần chạy: tên run, mô hình, điểm chính thức và nh
 
 ---
 
+## local v3 – tối ưu tốc độ để laptop chạy đủ tập <24h (2026-10-31)
+
+Mục tiêu: biến laptop RTX 2050 4GB thành công cụ thử nghiệm thật — chạy đủ 600 mẫu `public_test`
+trong dưới 24 giờ. Điểm khởi đầu: **1027s/mẫu ≈ 171 giờ** (v2 bf16, context 4096).
+
+### Đo để tìm nghẽn thật, không đoán
+
+Phân tích metrics v2 cho thấy **ASR chỉ chiếm 1%** (15-17s), LLM chiếm 99% (688-916s **mỗi lượt**).
+Giả thuyết đầu tiên của tôi — "trọng số bf16 8GB tràn khỏi 4GB VRAM nên stream qua PCIe mỗi token" —
+**đã sai**: chuyển sang 4-bit (2.3GB, vừa VRAM) chỉ nhanh hơn 2x (437s/lượt), không phải 100x.
+
+Benchmark trực tiếp (4-bit Qwen3-4B, 32 token mới, RTX 2050 4GB) mới chỉ ra nghẽn thật:
+
+| Độ dài prompt | Thời gian | Peak VRAM |
+|---|---|---|
+| 64 token | 3.0s | 2.52 GiB |
+| 1.024 | 5.5s | 3.05 GiB |
+| 2.048 | 28.3s | 4.11 GiB |
+| **3.900** (đang gửi thật) | **252.5s** | **7.54 GiB** |
+| 64 token, 128 token mới | 11.3s (~88ms/token) | 2.54 GiB |
+
+**Kết luận: decode không chậm (88ms/token). Prefill nổ theo độ dài prompt** vì attention vượt VRAM.
+Và prompt 3.904 token gần như toàn bộ là schema của 34 tool — đúng thứ `docs/context.txt` đã khuyến
+nghị cắt từ đầu ("Dynamic Schema Pruning: 6.000 → 1.200 token"), mà code chỉ cắt khi *vượt* context
+nên cứ gửi nguyên 3.904.
+
+Phát hiện phụ: **PyTorch bản Windows này không có Flash Attention** (`Torch was not compiled with
+flash attention`), chỉ có mem-efficient và math. Math backend materialize toàn bộ ma trận attention
+→ giải thích peak 7.54 GiB.
+
+### Thay đổi
+
+1. **Cắt prompt theo budget token** (`--prompt-token-budget`, mặc định 1800) thay vì chỉ cắt khi
+   vượt context. Đây là đòn tăng tốc chính.
+2. **Xếp hạng theo cấp ứng dụng bằng n-gram ký tự tiếng Việt**: bản cũ so transcript tiếng Việt với
+   tên tool tiếng Anh (`alarm.update`) → trùng từ ≈ 0 → chọn gần như ngẫu nhiên, cắt mất đúng tool
+   cần dùng. Bản mới dùng `name_vi`/`description` tiếng Việt có sẵn trong catalog, so bằng 3-gram ký
+   tự sau khi bỏ dấu (chịu được lỗi ASR: "bảo thích" vs "báo thức" vẫn trùng nhiều 3-gram), và giữ
+   **nguyên cả bộ tool của app** để không mất cặp read+write.
+3. **Buộc backend SDPA mem-efficient** (vì bản Windows thiếu Flash) để giảm peak VRAM attention.
+4. **Nén schema mạnh hơn**: bỏ đuôi `Returns: ...`, mô tả tool cắt còn 60 ký tự → thêm được cả app
+   vào cùng budget. Độ phủ app quan trọng hơn văn mô tả từng tool.
+5. **SYSTEM_PROMPT**: bỏ câu "Suy luận ngắn gọn trước khi chọn hành động" (nó *mời* model viết dài,
+   gây lỗi `LLM output hit token limit` ở 2/3 mẫu) → thay bằng yêu cầu chỉ xuất tool call hoặc DONE.
+6. **Sửa bug parser**: model đôi khi xuất tool call dạng văn xuôi
+   `sys.ask_missing_info({"tool_name": ...})`; bản cũ nhận đó là "câu trả lời cuối" → nộp **0 tool
+   call** và ăn 0 điểm trong im lặng. Nay khôi phục được, và nếu không parse nổi thì báo lỗi rõ.
+7. Thêm cờ `--llm-precision {auto,bf16,4bit}` và `--asr-device {auto,cuda,cpu}` — chọn hiện rõ, có
+   log cảnh báo, ghi vào metrics; không hạ chất lượng âm thầm.
+
+### Kết quả đo (5 mẫu `public_test`, RTX 2050 4GB, 4-bit + ASR CPU)
+
+| Mẫu | Tổng | ASR | LLM | Lượt | Kết thúc |
+|---|---|---|---|---|---|
+| public_0002 | 40s | 18s | 23s | 3 | done (`get_quotes` → `book`) |
+| public_0003 | 30s | 21s | 9s | 1 | asked_missing |
+| public_0004 | 40s | 16s | 24s | 1 | asked_missing |
+| public_0005 | 47s | 16s | 31s | 1 | asked_missing |
+| public_0006 | 96s | 41s | 54s | 3 | done |
+
+**Trung bình 51s/mẫu → ~8.4 giờ cho 600 mẫu** (xấu nhất 16h). **0 mẫu lỗi.**
+Tăng tốc **20x** so với v2 (1027s → 51s). Đạt mục tiêu <24h.
+
+### Còn tồn đọng (việc cho lần chạy sau, đừng lặp lại những gì đã làm ở trên)
+
+- **Routing vẫn sai app ở một số mẫu**: `public_0003` ("nếu mai mưa thì dời chạy bộ... nhắn báo giờ")
+  bị route sang `ride_hailing`. Budget 1800 có mẫu chỉ đủ 1 app → sai 1 lần là mất trắng mẫu đó.
+  Hướng chưa thử: route 2 bước (hỏi LLM chọn app trước), hoặc ép giữ tối thiểu 3 app, hoặc nén schema
+  sang định dạng gọn hơn JSON Schema.
+- **Nhiều mẫu ra `asked_missing`** (3/5) — cần đối chiếu gold xem có đúng là thiếu thông tin thật hay
+  model bỏ cuộc quá sớm. Chạy trên split `train` (có nhãn) sẽ trả lời được mà không tốn lượt nộp.
+- **Cấu hình local (4-bit + prompt cắt 1800) khác bản nộp A30 (bf16, có thể để prompt rộng hơn)** →
+  điểm local không dự đoán chính xác điểm leaderboard. Muốn đối chiếu công bằng thì chạy Kaggle.
+
+---
+
 ## local/kaggle unified v2 – ASR đổi sang PhoWhisper-large (2026-10-31, đang thử nghiệm)
 
 ### Research — vì sao đổi ASR lần 2 (Qwen3-ASR-0.6B → PhoWhisper-large)
@@ -60,9 +136,50 @@ baseline PhoASR cũ — không đánh đổi chất lượng ASR để đổi ki
 - **Local**: ASR chạy đúng (CPU, VRAM dồn cho LLM). LLM 4-bit NF4 trên RTX 2050 4GB vẫn rất chậm
   (920s cho 1 lượt, giống trước khi đổi ASR) — **không phải do PhoWhisper**, là hạn chế phần cứng đã
   biết của máy dev, không đại diện tốc độ thật trên A30 (xem mục trước).
-- **Kaggle**: *(tiếp theo — đồng bộ `lifemate_kaggle.ipynb` sang PhoWhisper-large để nhất quán)*
-- **Điểm**: *chờ chạy đủ `public_test` (trên Kaggle, không phải máy dev) và nộp để có điểm leaderboard
-  đối chiếu với baseline 22.52*
+- **Kaggle**: đã đồng bộ (`lifemate_kaggle.ipynb` v9, `SpeechModel` dùng `AutoModelForSpeechSeq2Seq`
+  chuẩn thay Qwen3ASR, cùng model `vinai/PhoWhisper-large` với local)
+- **Điểm**: *chờ chạy đủ `public_test` và nộp để có điểm leaderboard đối chiếu với baseline 22.52*
+
+### Quyết định bổ sung (2026-10-31, theo yêu cầu người dùng): không hạ precision để "vừa" máy yếu
+
+Ban đầu đã thêm auto-fallback: LLM xuống 4-bit NF4 (bitsandbytes) và ASR chạy CPU khi VRAM <10GiB/
+<6GiB free, để tránh OOM trên RTX 2050 4GB. **Người dùng yêu cầu bỏ** — tổng hệ thống 6B tham số
+(bf16 ≈ 11GB) vẫn khả thi trên "4GB VRAM + 15GB shared RAM" nếu chấp nhận chậm; không muốn đổi sang
+model/độ chính xác yếu hơn chỉ vì máy dev yếu, muốn một thử nghiệm nghiêm túc khớp đúng cấu hình
+sẽ dùng trên A30 (bf16 đầy đủ), khác biệt chỉ nên là **thời gian**, không phải **độ chính xác**.
+
+**Đã gỡ**: `BitsAndBytesConfig` 4-bit trong `LLMAgent`, CPU-fallback theo VRAM trong `PhoWhisperASR`,
+`bitsandbytes` khỏi `requirements.txt`. Cả 2 model giờ luôn load bf16/fp16 trên GPU.
+
+**Hệ quả kỹ thuật phát hiện (ban đầu nghi sai)**: tổng 2 model bf16 (~11GB) vượt xa 4GB VRAM vật lý.
+Ban đầu nghi cần bật driver NVIDIA "CUDA Sysmem Fallback Policy" — **sai một phần**: Windows/driver
+**đã tự tràn sang RAM mà không cần chỉnh gì** (load model 11.36GB thành công nhiều lần, đúng như
+người dùng phản biện). Thứ thật sự gây `torch.OutOfMemoryError` là **context quá lớn (8192 token)**
+khiến 1 lượt attention của LLM cần cấp phát tức thời 5.93GB — vượt ngưỡng cấp phát khả dụng tại thời
+điểm đó, lặp lại y hệt dù đã thêm `PYTORCH_ALLOC_CONF=expandable_segments:True` (biến này **không
+được hỗ trợ trên Windows**: log báo rõ "expandable_segments not supported on this platform").
+
+### ĐÃ CHẠY THÀNH CÔNG — bf16 đầy đủ, không giảm chất lượng, không cần đổi driver
+
+Fix thật: giảm `--context-size 4096 --max-new-tokens 192` (đúng bằng config Kaggle T4 trong
+`lifemate_kaggle.ipynb`) — **đã đổi thành default** trong `scripts/infer.py`. Kết quả 2 mẫu
+`public_test` (2026-10-31, máy RTX 2050 4GB + 32GB RAM):
+
+| Mẫu | Kết quả | Thời gian | Nhận xét |
+|---|---|---|---|
+| `public_0002` | `done`, 2 lượt LLM — gọi `ride_hailing.book` đúng tham số rồi trả lời tự nhiên | 1846s (~31 phút) | ⚠️ gọi tool ngay lượt 1 không `read` trước; địa chỉ đón/trả suy luận từ context, cần đối chiếu gold khi có điểm |
+| `public_0003` | `asked_missing`, 1 lượt — gọi đúng `sys.ask_missing_info(alarm.update, [time,label])` | 706s (~12 phút) | Đúng quy tắc: thiếu param bắt buộc → hỏi, không bịa |
+
+**Không có mẫu nào fail.** Xác nhận: hệ thống <6B tham số, bf16 đầy đủ (không 4-bit), chạy được trên
+GPU 4GB + RAM 32GB thật — đúng như người dùng kỳ vọng, chỉ khác thời gian so với A30, không khác độ
+chính xác. Đã cập nhật default `--context-size`/`--max-new-tokens` để lần chạy sau không cần truyền
+tay flag này nữa.
+
+**Việc KHÔNG cần làm** (đã thử, không có tác dụng hoặc không cần thiết):
+- ❌ Bật "CUDA Sysmem Fallback Policy" trong NVIDIA Control Panel — chưa thử nhưng có khả năng không
+  cần, vì vấn đề là context quá lớn chứ không phải chính sách tràn bộ nhớ
+- ❌ `PYTORCH_ALLOC_CONF=expandable_segments:True` — không được hỗ trợ trên Windows, giữ lại trong
+  code (vô hại, có thể hữu ích trên Linux/Kaggle) nhưng không phải fix chính
 
 ---
 

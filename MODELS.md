@@ -11,6 +11,35 @@ sau này) — mỗi lệnh tự trỏ đúng nơi, xem phần "Lệnh" dưới �
 | `vinai/PhoWhisper-large` | ASR (`src/asr.py`) — đổi từ Qwen3-ASR-0.6B vì WER tiếng Việt thấp hơn hẳn, xem `EXPERIMENTS.md` | `D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--vinai--PhoWhisper-large` |
 | `Qwen/Qwen3-4B-Instruct-2507` | LLM tool-calling (`src/llm_agent.py`) | `D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--Qwen--Qwen3-4B-Instruct-2507` |
 
+## Chạy full bf16 trên GPU 4GB (RTX 2050) — ĐÃ XÁC NHẬN chạy được, không cần đổi driver
+
+Pipeline **không** tự hạ precision xuống 4-bit hay đẩy model sang CPU để "vừa" VRAM nhỏ — chạy đúng
+model/độ chính xác như trên A30 (bf16 đầy đủ), chấp nhận chậm hơn.
+
+Tổng 2 model bf16 ≈ 3.1GB (ASR) + 8.0GB (LLM) = **~11GB**, vượt xa 4GB VRAM của RTX 2050. Phần vượt
+tràn sang RAM hệ thống (32GB máy test) — **Windows/driver NVIDIA đã tự làm việc này, không cần bật
+gì trong NVIDIA Control Panel** (giả thuyết ban đầu về "CUDA Sysmem Fallback Policy" sai — xem
+`EXPERIMENTS.md` phần "v2 bf16 full" để biết chi tiết điều tra).
+
+**OOM thật gặp phải và cách đã sửa**: context 8192 token mặc định ban đầu khiến 1 lượt attention cần
+cấp tức thời 5.93GB, vượt ngưỡng cấp phát khả dụng → `torch.OutOfMemoryError`. Đã đổi default
+`--context-size` 8192→**4096**, `--max-new-tokens` 384→**192** (khớp notebook Kaggle T4) trong
+`scripts/infer.py` — **không cần truyền tay**, chạy lệnh bình thường là đủ:
+
+```bash
+python scripts/infer.py --split public_test --max-samples 2 --max-seconds 36000 \
+  --output debug.jsonl --metrics-output debug.metrics.jsonl
+```
+
+Kết quả thật (2026-10-31): 2/2 mẫu `public_test` chạy xong, không fail, ~12-31 phút/mẫu (xem
+`EXPERIMENTS.md`). `PYTORCH_ALLOC_CONF=expandable_segments:True` đã thử thêm trong code nhưng
+**không có tác dụng trên Windows** (log báo "not supported on this platform") — giữ lại vô hại,
+không phải fix chính.
+
+**Nếu vẫn OOM với context mặc định 4096** (ví dụ mẫu có lịch sử hội thoại rất dài): giảm thêm qua
+`--context-size 3072` hoặc đóng các app khác đang dùng GPU/RAM (trình duyệt, game) để có thêm RAM
+trống trước khi chạy.
+
 `src/models.py::model_path()` tự tìm theo thứ tự: `$HF_HOME` (nếu đặt) → `~/.cache/huggingface/hub`
 (C:) → `models/hf-cache/hub` của project (D:). Vì 2 model trên đã nằm ở D:, chạy
 `python scripts/infer.py ...` bình thường sẽ tự thấy, **không cần set gì thêm**.
