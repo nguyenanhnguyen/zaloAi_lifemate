@@ -1,0 +1,1 @@
+{"id": "public_0002", "seconds": 28.082, "asr_seconds": 8.527, "llm_seconds": 19.553, "process_ram_mb": 2671, "cuda_peak_allocated_mb": 2666, "over_30_seconds": false, "failed": false, "stop_reason": "time_limit"}
