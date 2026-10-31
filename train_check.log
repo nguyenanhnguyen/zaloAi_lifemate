@@ -362,3 +362,65 @@ Giá vàng SJC hiện tại là 125,6 triệu đồng/lượng (mua vào), cao h
 2026-10-31 17:16:08,025 INFO Processed 29/100: train_0034 (53.6 s; average 31.9 s)
 2026-10-31 17:16:08,058 INFO train_0035 transcript: bà nữ tắp đèn phòng khách giúp tối nhẹ.
 2026-10-31 17:16:08,108 WARNING Tool prompt routed to 11/26 tools from apps ['reminders', 'smart_home'] (budget 1800 tokens)
+2026-10-31 17:16:53,602 INFO train_0035 step 1: smart_home.get_status {'room': 'living room'}
+2026-10-31 17:16:53,645 WARNING Tool prompt routed to 11/26 tools from apps ['reminders', 'smart_home'] (budget 1800 tokens)
+2026-10-31 17:16:59,177 INFO train_0035 step 2: smart_home.get_status {'room': 'living room', 'type': 'light'}
+2026-10-31 17:16:59,223 WARNING Tool prompt routed to 5/26 tools from apps ['reminders'] (budget 1800 tokens)
+2026-10-31 17:17:06,606 INFO train_0035 step 3: sys.ask_missing_info {'tool_name': 'smart_home.set_light', 'params': ['brightness', 'color']}
+2026-10-31 17:17:06,606 INFO train_0035 stopped: asked_missing (3 LLM turns)
+2026-10-31 17:17:06,619 INFO Processed 30/100: train_0035 (60.1 s; average 32.8 s)
+2026-10-31 17:17:06,639 INFO train_0036 transcript: tắt tiền phòng làm việc đi là khôi khói không cần.
+2026-10-31 17:17:06,719 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
+2026-10-31 17:17:14,095 INFO train_0036 step 1: smart_home.get_status {'room': 'office'}
+2026-10-31 17:17:14,169 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
+2026-10-31 17:17:18,318 INFO train_0036 step 2: smart_home.get_status {'room': 'living_room'}
+2026-10-31 17:17:18,379 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
+2026-10-31 17:17:24,777 INFO train_0036 final: Tắt thiết bị trong phòng làm việc và phòng sinh hoạt, vì không có thiết bị nào được phát hiện. Yêu cầu đã được xử lý.  
+DONE
+2026-10-31 17:17:24,777 INFO train_0036 stopped: done (3 LLM turns)
+2026-10-31 17:17:24,793 INFO Processed 31/100: train_0036 (19.5 s; average 32.4 s)
+2026-10-31 17:17:24,853 INFO train_0037 transcript: nếu mai ngơ thì là thị giúp tôi đặt đi chơi công viên sáng nay luôn.
+2026-10-31 17:17:24,921 WARNING Tool prompt routed to 11/45 tools from apps ['smart_home', 'ewallet'] (budget 1800 tokens)
+2026-10-31 17:18:06,721 INFO train_0037 step 1: smart_home.get_status {'room': 'living'}
+2026-10-31 17:18:06,775 WARNING Tool prompt routed to 7/45 tools from apps ['smart_home'] (budget 1800 tokens)
+2026-10-31 17:18:13,354 INFO train_0037 step 2: sys.ask_missing_info {'tool_name': 'smart_home.get_status', 'params': ['room', 'floor', 'type']}
+2026-10-31 17:18:13,355 INFO train_0037 stopped: asked_missing (2 LLM turns)
+2026-10-31 17:18:13,367 INFO Processed 32/100: train_0037 (50.4 s; average 33.0 s)
+2026-10-31 17:18:13,395 INFO train_0038 transcript: em ơi đừng lắc bếp nhé cứ để đó.
+2026-10-31 17:18:13,440 WARNING Tool prompt routed to 11/47 tools from apps ['medication', 'smart_home'] (budget 1800 tokens)
+2026-10-31 17:18:54,829 INFO train_0038 final: DONE
+2026-10-31 17:18:54,829 INFO train_0038 stopped: done (1 LLM turns)
+2026-10-31 17:18:54,859 INFO Processed 33/100: train_0038 (42.6 s; average 33.3 s)
+2026-10-31 17:18:54,895 INFO train_0039 transcript: ò à nhóm qua gia lô cho minh là tối nay anh không ở nhà nhỉ.
+2026-10-31 17:18:54,957 WARNING Tool prompt routed to 12/40 tools from apps ['food_delivery', 'chat_ott', 'gold_price'] (budget 1800 tokens)
+2026-10-31 17:19:39,814 INFO train_0039 step 1: chat_ott.list_chats {}
+2026-10-31 17:19:39,857 WARNING Tool prompt routed to 6/40 tools from apps ['food_delivery'] (budget 1800 tokens)
+2026-10-31 17:19:45,294 WARNING train_0039 rejected before execution: chat_ott.get_chat Unknown tool or malformed arguments. Use the provided schema.
+2026-10-31 17:19:45,350 WARNING Tool prompt routed to 6/40 tools from apps ['food_delivery'] (budget 1800 tokens)
+2026-10-31 17:19:50,691 INFO train_0039 step 3: sys.ask_missing_info {'tool_name': 'chat_ott.get_chat', 'params': ['chat_id']}
+2026-10-31 17:19:50,691 INFO train_0039 stopped: asked_missing (3 LLM turns)
+2026-10-31 17:19:50,701 INFO Processed 34/100: train_0039 (57.4 s; average 34.0 s)
+2026-10-31 17:19:50,733 INFO train_0040 transcript: ơi giờ lịch cà phê với gia đình mai buồn hơn nửa tiếng giúp chị nhé.
+2026-10-31 17:19:50,767 WARNING Tool prompt routed to 10/34 tools from apps ['phone', 'fuel_price', 'sms', 'tv'] (budget 1800 tokens)
+2026-10-31 17:19:57,969 INFO train_0040 step 1: phone.recent_calls {'missed_only': False}
+2026-10-31 17:19:58,005 WARNING Tool prompt routed to 10/34 tools from apps ['phone', 'fuel_price', 'sms', 'tv'] (budget 1800 tokens)
+2026-10-31 17:20:02,658 INFO train_0040 step 2: sms.read_recent {'contact_id': 'family', 'limit': 5}
+2026-10-31 17:20:02,701 WARNING Tool prompt routed to 10/34 tools from apps ['phone', 'fuel_price', 'sms', 'tv'] (budget 1800 tokens)
+2026-10-31 17:20:03,962 INFO train_0040 final: DONE
+2026-10-31 17:20:03,962 INFO train_0040 stopped: done (3 LLM turns)
+2026-10-31 17:20:03,975 INFO Processed 35/100: train_0040 (15.1 s; average 33.4 s)
+2026-10-31 17:20:04,022 INFO train_0041 transcript: nạp cho anh tuấn năm mươi nghìn và chuyển tiền điện tháng này cho thu mai nhé.
+2026-10-31 17:20:04,072 WARNING Tool prompt routed to 12/46 tools from apps ['ewallet', 'banking', 'sms'] (budget 1800 tokens)
+2026-10-31 17:20:46,634 INFO train_0041 step 1: sms.read_recent {'contact_id': 'CT002'}
+2026-10-31 17:20:46,692 WARNING Tool prompt routed to 10/46 tools from apps ['ewallet', 'banking'] (budget 1800 tokens)
+2026-10-31 17:20:52,124 INFO train_0041 step 2: banking.list_beneficiaries {}
+2026-10-31 17:20:52,185 WARNING Tool prompt routed to 10/46 tools from apps ['ewallet', 'banking'] (budget 1800 tokens)
+2026-10-31 17:20:58,943 INFO train_0041 step 3: sys.ask_missing_info {'tool_name': 'ewallet.transfer', 'params': ['contact_id', 'phone']}
+2026-10-31 17:20:58,944 INFO train_0041 stopped: asked_missing (3 LLM turns)
+2026-10-31 17:20:58,954 INFO Processed 36/100: train_0041 (57.0 s; average 34.1 s)
+2026-10-31 17:20:58,977 INFO train_0042 transcript: đặt báo thuyết sau buổi sáng mai với ý ngợi cho minh giúp tôi nhé.
+2026-10-31 17:20:59,021 WARNING Tool prompt routed to 13/39 tools from apps ['phone', 'tv', 'sms', 'music'] (budget 1800 tokens)
+2026-10-31 17:21:44,830 INFO train_0042 step 1: phone.recent_calls {'missed_only': False}
+2026-10-31 17:21:44,877 WARNING Tool prompt routed to 9/39 tools from apps ['phone', 'tv', 'sms'] (budget 1800 tokens)
+2026-10-31 17:21:51,030 INFO train_0042 step 2: sms.read_recent {'contact_id': 'contact_001', 'limit': 5}
+2026-10-31 17:21:51,077 WARNING Tool prompt routed to 9/39 tools from apps ['phone', 'tv', 'sms'] (budget 1800 tokens)
