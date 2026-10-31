@@ -4,3 +4,4 @@ models/
 checkpoints/
 __pycache__/
 *.jsonl 
+notebook/results

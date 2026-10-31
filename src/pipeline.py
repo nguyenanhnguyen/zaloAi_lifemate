@@ -6,7 +6,7 @@ import logging
 import time
 from pathlib import Path
 
-from .asr import PhoWhisperASR
+from .asr import WhisperASR
 from .llm_agent import LLMAgent
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,19 @@ def _available_tools(catalog: dict, installed_apps: dict) -> list[dict]:
             if tool.get("name") in allowed]
 
 
+def audio_paths(item: dict, audio_path: Path, split_dir: Path | None) -> list[Path]:
+    """The sample's own audio, then every user turn in history that carries audio, in that order.
+
+    Shared with the standalone ASR phase in scripts/infer.py so both phases transcribe exactly the
+    same files in the same order.
+    """
+    history_audio = [turn for turn in item.get("history", [])
+                     if turn.get("role") == "user" and turn.get("audio")]
+    if history_audio and split_dir is None:
+        raise ValueError("split_dir required for history audio")
+    return [audio_path] + [split_dir / turn["audio"] for turn in history_audio]
+
+
 def _app_hints(catalog: dict) -> dict[str, str]:
     """app id -> its Vietnamese name and description, used to route a Vietnamese request to apps."""
     return {app["id"]: f"{app.get('name_vi', '')} {app.get('description', '')}"
@@ -55,7 +68,7 @@ def _native_tools(tools: list[dict]) -> list[dict]:
 
 
 class Pipeline:
-    def __init__(self, asr_model: PhoWhisperASR, llm_agent: LLMAgent,
+    def __init__(self, asr_model: WhisperASR, llm_agent: LLMAgent,
                  *, max_steps: int = MAX_STEPS, max_seconds: float = 600) -> None:
         self.asr_model = asr_model
         self.llm_agent = llm_agent
@@ -80,11 +93,7 @@ class Pipeline:
         native_tools = _native_tools(tools)
         app_hints = _app_hints(catalog)
         # One batched GPU call for the main request plus every user-turn audio in history.
-        history_audio_turns = [turn for turn in item.get("history", [])
-                               if turn.get("role") == "user" and turn.get("audio")]
-        if history_audio_turns and split_dir is None:
-            raise ValueError("split_dir required for history audio")
-        paths = [audio_path] + [split_dir / turn["audio"] for turn in history_audio_turns]
+        paths = audio_paths(item, audio_path, split_dir)
         asr_started = time.perf_counter()
         try:
             transcripts = self.asr_model.transcribe_batch(paths, deadline=deadline)

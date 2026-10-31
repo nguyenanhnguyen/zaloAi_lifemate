@@ -17,12 +17,68 @@ sys.path.insert(0, str(PROJECT_ROOT))
 # to PYTORCH_ALLOC_CONF; set both names since this venv's exact torch version may vary.
 os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
-from src.asr import ASR_REPO, ASR_REVISION, PhoWhisperASR
+from src.asr import ASR_MODELS, ASR_REPO, ASR_REVISION, CachedASR, WhisperASR, asr_revision
 from src.llm_agent import LLM_REPO, LLM_REVISION, LLMAgent
 from src.models import model_path
-from src.pipeline import Pipeline
+from src.pipeline import Pipeline, audio_paths
 
 logger = logging.getLogger(__name__)
+
+
+def _asr_rev(parser: argparse.ArgumentParser, repo: str) -> str:
+    """Refuse an unpinned repo id: the competition requires a reproducible, offline checkpoint."""
+    revision = asr_revision(repo)
+    if not revision:
+        parser.error(f"--asr-model {repo} has no pinned revision. Add it to src/asr.py::ASR_MODELS "
+                     f"(check its licence and release date first), or pass a local directory. "
+                     f"Known: {', '.join(ASR_MODELS)}")
+    return revision
+
+
+def _prefetch_transcripts(asr_path: str, *, items: list[dict], split_dir: Path, cache_path: Path,
+                          device: str, max_new_tokens: int) -> tuple[dict[str, str], dict[str, float]]:
+    """Transcribe every sample's audio with the ASR alone on the card, then free its weights.
+
+    Results are appended to cache_path as they are produced, so an interrupted run resumes without
+    redoing ASR. Returns (path -> transcript, sample id -> seconds spent).
+    """
+    transcripts: dict[str, str] = {}
+    if cache_path.exists():
+        with cache_path.open(encoding="utf-8") as handle:
+            for line in handle:
+                if line.strip():
+                    record = json.loads(line)
+                    transcripts[record["path"]] = record["text"]
+        logger.info("Reusing %d cached transcripts from %s", len(transcripts), cache_path)
+    pending = [item for item in items
+               if any(str(path) not in transcripts
+                      for path in audio_paths(item, split_dir / item["audio"], split_dir))]
+    seconds: dict[str, float] = {item["id"]: 0.0 for item in items}
+    if not pending:
+        return transcripts, seconds
+    logger.info("ASR phase: %d of %d samples still to transcribe on %s", len(pending), len(items), device)
+    asr = WhisperASR(asr_path, max_new_tokens=max_new_tokens, device=device)
+    started_phase = time.perf_counter()
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with cache_path.open("a", encoding="utf-8") as cache:
+            for count, item in enumerate(pending, 1):
+                paths = audio_paths(item, split_dir / item["audio"], split_dir)
+                started = time.perf_counter()
+                texts = asr.transcribe_batch(paths)
+                seconds[item["id"]] = time.perf_counter() - started
+                for path, text in zip(paths, texts):
+                    transcripts[str(path)] = text
+                    cache.write(json.dumps({"path": str(path), "text": text}, ensure_ascii=False) + "\n")
+                cache.flush()
+                if count % 25 == 0 or count == len(pending):
+                    done = time.perf_counter() - started_phase
+                    logger.info("ASR phase %d/%d (%.1f s elapsed, %.1f s/sample, ~%.0f min left)",
+                                count, len(pending), done, done / count,
+                                (len(pending) - count) * done / count / 60)
+    finally:
+        asr.close()
+    return transcripts, seconds
 
 
 def main() -> None:
@@ -49,14 +105,26 @@ def main() -> None:
                         help="Total input/output context, at most 16384. Matches the Kaggle notebook's "
                              "T4 value; raising it noticeably increases peak attention memory per LLM turn.")
     parser.add_argument("--asr-max-new-tokens", type=int, default=256)
-    parser.add_argument("--asr-model", default=ASR_REPO, help="HF repo id or local directory")
+    parser.add_argument("--asr-model", default=ASR_REPO,
+                        help="A pinned Whisper checkpoint or a local directory. Known: "
+                             + ", ".join(ASR_MODELS))
     parser.add_argument("--llm-model", help="Local HF directory; default is pinned Qwen3-4B-Instruct-2507")
     parser.add_argument("--llm-precision", choices=("auto", "bf16", "4bit"), default="auto",
                         help="bf16 matches the organisers' A30. 4bit (~2.3 GB vs 8.0 GB) keeps the "
                              "weights inside a small card's VRAM instead of streaming them over "
                              "PCIe every token. auto: 4bit when the GPU has under 10 GiB VRAM.")
     parser.add_argument("--asr-device", choices=("auto", "cuda", "cpu"), default="auto",
-                        help="auto: CPU when the GPU has under 10 GiB VRAM, so the LLM keeps all of it")
+                        help="auto: GPU in the prefetch phase, else CPU on a GPU under 10 GiB VRAM")
+    parser.add_argument("--asr-phase", choices=("auto", "inline", "prefetch"), default="auto",
+                        help="prefetch: transcribe every sample first with the card to itself, free "
+                             "the ASR weights, then load the LLM. Measured 3.1 s/file on GPU vs "
+                             "24.5 s on CPU for the same transcript, and the two models cannot both "
+                             "be resident on a small card. inline matches the A30/notebook path, "
+                             "where per-sample time includes ASR. auto: prefetch under 10 GiB VRAM.")
+    parser.add_argument("--transcript-cache", type=Path,
+                        help="Where the prefetch phase stores transcripts; reused on a later run "
+                             "so an interrupted LLM phase does not redo ASR. "
+                             "Default: <output>.transcripts.jsonl")
     args = parser.parse_args()
     if not 1 <= args.max_steps <= 16 or not 0 < args.max_seconds <= 86400:
         parser.error("Use 1-16 turns and 0 < --max-seconds <= 86400")
@@ -66,7 +134,8 @@ def main() -> None:
         parser.error("Invalid sample count")
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     if args.prepare_only:
-        model_path(ASR_REPO, ASR_REVISION, download=True)
+        if not Path(args.asr_model).is_dir():
+            model_path(args.asr_model, _asr_rev(parser, args.asr_model), download=True)
         model_path(LLM_REPO, LLM_REVISION, download=True)
         logger.info("Models are ready")
         return
@@ -119,12 +188,31 @@ def main() -> None:
     # token and cost ~900 s per LLM turn instead of seconds. Pick the resident configuration.
     small_gpu = torch.cuda.is_available() and torch.cuda.get_device_properties(0).total_memory < 10 * 1024**3
     precision = args.llm_precision if args.llm_precision != "auto" else ("4bit" if small_gpu else "bf16")
-    asr_device = args.asr_device if args.asr_device != "auto" else ("cpu" if small_gpu else "cuda")
+    asr_phase = args.asr_phase if args.asr_phase != "auto" else ("prefetch" if small_gpu else "inline")
+    if args.asr_device != "auto":
+        asr_device = args.asr_device
+    elif asr_phase == "prefetch":
+        asr_device = "cuda" if torch.cuda.is_available() else "cpu"  # the card is ours this phase
+    else:
+        asr_device = "cpu" if small_gpu else "cuda"
     if precision != "bf16":
         logger.warning("LLM precision=%s (not the A30's bf16): local speed configuration, scores may "
                        "differ slightly from a bf16 submission. Pass --llm-precision bf16 to match.", precision)
-    asr_path = args.asr_model if Path(args.asr_model).is_dir() else model_path(args.asr_model, ASR_REVISION)
-    asr = PhoWhisperASR(asr_path, max_new_tokens=args.asr_max_new_tokens, device=asr_device)
+    if asr_phase == "prefetch":
+        logger.warning("ASR runs as a separate phase before the LLM, so per-sample seconds below "
+                       "cover the LLM only; asr_seconds comes from the ASR phase. The competition's "
+                       "30 s/sample budget applies to both together -- use --asr-phase inline to "
+                       "measure a sample end to end as the organisers do.")
+    asr_path = args.asr_model if Path(args.asr_model).is_dir() else model_path(args.asr_model, _asr_rev(parser, args.asr_model))
+    prefetched: dict[str, float] = {}
+    if asr_phase == "prefetch":
+        transcripts, prefetched = _prefetch_transcripts(
+            asr_path, items=items, split_dir=split_dir,
+            cache_path=args.transcript_cache or args.output.with_suffix(".transcripts.jsonl"),
+            device=asr_device, max_new_tokens=args.asr_max_new_tokens)
+        asr = CachedASR(transcripts)
+    else:
+        asr = WhisperASR(asr_path, max_new_tokens=args.asr_max_new_tokens, device=asr_device)
     llm = LLMAgent(args.llm_model, context_size=args.context_size, max_new_tokens=args.max_new_tokens,
                    precision=precision, prompt_token_budget=args.prompt_token_budget)
     pipeline = Pipeline(asr, llm, max_steps=args.max_steps, max_seconds=args.max_seconds)
@@ -153,9 +241,12 @@ def main() -> None:
                     calls, state_hash = env.get_tool_calls(), env.get_state_hash()
                     failed = True
                 elapsed = time.perf_counter() - started
+                # In prefetch mode this sample's ASR already happened, so fold it back in: the
+                # 30 s rule covers ASR plus LLM, not whichever half this loop happened to run.
+                whole_sample = elapsed + prefetched.get(item["id"], 0.0)
                 failures += failed
-                slow += elapsed > 30
-                total_seconds += elapsed
+                slow += whole_sample > 30
+                total_seconds += whole_sample
                 target.write(json.dumps({"id": item["id"], "tool_calls": calls, "state_hash": state_hash}, ensure_ascii=False) + "\n")
                 target.flush()
                 ram = process.memory_info().rss
@@ -165,24 +256,26 @@ def main() -> None:
                     except psutil.Error:
                         pass
                 free, total = torch.cuda.mem_get_info() if torch.cuda.is_available() else (0, 0)
-                record = {"id": item["id"], "seconds": round(elapsed, 3),
-                          "asr_seconds": round(pipeline.last_asr_seconds, 3),
+                record = {"id": item["id"], "seconds": round(whole_sample, 3),
+                          "asr_seconds": round(prefetched.get(item["id"], pipeline.last_asr_seconds), 3),
                           "llm_seconds": round(pipeline.last_llm_seconds, 3),
                           "transcript": pipeline.last_transcript, "llm_turns": pipeline.steps,
                           "process_tree_ram_mb": round(ram / 1024**2),
                           "whole_gpu_used_mb": round((total-free) / 1024**2),
-                          "over_30_seconds": elapsed > 30, "failed": failed,
+                          "over_30_seconds": whole_sample > 30, "failed": failed,
                           "stop_reason": pipeline.stop_reason,
-                          "asr_model": args.asr_model, "llm_model": args.llm_model or LLM_REPO,
-                          "llm_precision": precision, "asr_device": asr_device,
+                          "asr_model": args.asr_model, "asr_revision": asr_revision(args.asr_model),
+                          "llm_model": args.llm_model or LLM_REPO,
+                          "llm_precision": precision, "asr_device": asr_device, "asr_phase": asr_phase,
                           "context_size": args.context_size, "max_new_tokens": args.max_new_tokens,
                           "prompt_token_budget": args.prompt_token_budget}
                 metrics.write(json.dumps(record, ensure_ascii=False) + "\n")
                 metrics.flush()
                 logger.info("Processed %d/%d: %s (%.1f s; average %.1f s)",
-                            count, len(items), item["id"], elapsed, total_seconds/count)
+                            count, len(items), item["id"], whole_sample, total_seconds/count)
     finally:
         llm.close()
+        asr.close()
     logger.info("Wrote %d samples to %s; %d failed; %d over 30 s", completed+len(items), args.output, failures, slow)
     if failures:
         raise SystemExit(1)

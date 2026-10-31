@@ -4,6 +4,115 @@ Ghi lại từng lần chạy: tên run, mô hình, điểm chính thức và nh
 
 ---
 
+## local v4 – thử ASR khác hẳn + sửa time leak thật của ASR (2026-10-31)
+
+Mục tiêu người dùng đặt ra: **laptop và Kaggle không được chạy trùng nhau**. Notebook v9 đang chạy
+`PhoWhisper-large`, nên lần này laptop phải thử một ASR **khác hẳn** để biết chênh lệch thật, chứ
+không lặp lại chính model đã biết.
+
+### Luật trước tiên — loại ngay những ứng viên không đủ điều kiện
+
+Ngân sách tham số: hệ thống <6B, LLM đã chiếm 4.022B → **ASR phải <1.978B**. Mọi checkpoint phải
+công khai trước 26/10/2026 và có giấy phép cho phép dùng.
+
+| Ứng viên | Kết luận |
+|---|---|
+| `Qwen/Qwen3-ASR-1.7B` | **Loại** — tên ghi 1.7B nhưng thực tế **2.349B** → tổng 6.37B > 6B |
+| `hynt/Zipformer-30M-RNNT-6000h` | **Loại** — `cc-by-nc-nd-4.0` (NonCommercial + NoDerivatives) |
+| `nguyenvulebinh/wav2vec2-large-vi-vlsp2020` | **Loại** — `cc-by-nc-4.0` |
+| `nvidia/parakeet-tdt-0.6b-v3` | **Loại** — 25 thứ tiếng châu Âu, **không có tiếng Việt** |
+| `mistralai/Voxtral-Mini-4B` | **Loại** — 4B, cộng LLM là 8B |
+| `erax-ai/EraX-WoW-Turbo-V1.1` | **Nhận** — MIT, 809M, 2025-03-31, fine-tune tiếng Việt từ whisper-large-v3-turbo |
+| `openai/whisper-large-v3-turbo` | **Nhận làm đối chứng** — MIT, 809M, cùng kiến trúc nhưng *không* fine-tune tiếng Việt |
+
+Lý do chọn EraX làm ứng viên chính: cùng encoder 32 lớp / d_model 1280 như PhoWhisper-large, nhưng
+**decoder 4 lớp thay vì 32**. Decode tự hồi quy là phần đắt nhất trên CPU, nên về lý thuyết nhanh
+hơn nhiều mà vẫn được huấn luyện cho tiếng Việt (8 vùng miền, ~1000h). Cùng API `transformers` →
+không thêm dependency nào, không rủi ro khi đóng băng Docker (bài học `autoawq` ở v2).
+
+### Đo WER thật trên split `train` (có nhãn `audio_text`, không tốn lượt nộp)
+
+12 mẫu rải đều 1545 mẫu `train`, cùng audio, cùng cấu hình. WER = word-level edit distance sau khi
+bỏ dấu câu và lowercase.
+
+| ASR | Params | WER | CPU s/file | GPU s/file |
+|---|---|---|---|---|
+| **`vinai/PhoWhisper-large`** | 1.543B | **23.59%** | 24.5 | **3.1** |
+| `erax-ai/EraX-WoW-Turbo-V1.1` | 809M | 28.17% | 13.1 | 0.9 |
+| `openai/whisper-large-v3-turbo` | 809M | 28.87% | — | 1.0 |
+
+**Kết quả âm — và đây mới là phần có giá trị:** EraX nhanh 1.9x (CPU) nhưng WER tệ hơn **4.6 điểm**.
+Model đối chứng trả lời dứt điểm vì sao: vanilla turbo 28.87% so với EraX 28.17% → **việc fine-tune
+tiếng Việt của EraX chỉ mua được 0.7 điểm**, gần như không có gì. Thứ thật sự tạo ra khoảng cách là
+**độ sâu decoder** (32 lớp của PhoWhisper so với 4 lớp của turbo), không phải dữ liệu huấn luyện.
+
+Hệ quả: **không đổi ASR.** Giữ `PhoWhisper-large`. Đổi sang EraX sẽ tiết kiệm ~20% thời gian để đánh
+đổi 4.6 điểm WER — mà WER hỏng là mất thẳng tool call và `state_hash`, tức mất điểm mẫu.
+
+Lưu ý khi đọc bảng: turbo viết số bằng chữ số (`50.000`, `8h`) còn PhoWhisper viết bằng chữ, nên WER
+phạt turbo oan một phần (vd. `train_1144`: turbo 58.3% vs Pho 25% phần lớn do định dạng số). Dù trừ
+đi phần này, PhoWhisper vẫn dẫn rõ ràng.
+
+### Time leak thật: ASR bị đẩy xuống CPU, không phải model sai
+
+Chỗ này là một sai sót của chính tôi ở v3. Comment trong `src/asr.py` ghi *"ASR is only ~1% of a
+sample's time"* — đúng ở thời điểm 1 lượt LLM mất 900s, nhưng sau khi tối ưu LLM thì con số thật là:
+
+```
+15 mẫu đã chạy: tổng 893s = ASR 357s (40%) + LLM 535s (60%)
+```
+
+**ASR đã thành 40% thời gian mà vẫn bị để trên CPU.** Và chi phí gần như **cố định theo số file**,
+không theo độ dài audio (~16s/file), vì Whisper luôn pad mel lên 30s — nên mẫu có 2 lượt history
+audio đắt gấp ba mẫu không có.
+
+Cùng một transcript, GPU nhanh hơn CPU **8x** (3.1s vs 24.5s/file, WER y hệt 23.59%). Nhưng trên card
+4GB thì ASR fp16 (3.1GB) và LLM 4-bit (2.3GB) không thể cùng nằm trong VRAM — ai tràn ra thì chậm 8x.
+
+**Giải pháp: tách thành hai pha.** Transcribe toàn bộ trước, khi ASR được dùng cả card một mình; giải
+phóng trọng số; rồi mới nạp LLM. A30 giữ được cả hai cùng lúc nên không cần việc này — `--asr-phase
+inline` giữ đúng đường chạy của BTC/notebook.
+
+- `src/asr.py`: thêm `ASR_MODELS` (repo → revision pin, kèm kiểm tra giấy phép), đổi `PhoWhisperASR`
+  → `WhisperASR` (giờ phục vụ 3 checkpoint cùng API), thêm `close()` và `CachedASR`.
+- `src/pipeline.py`: tách `audio_paths()` thành một nguồn duy nhất cho cả hai pha.
+- `scripts/infer.py`: `--asr-phase {auto,inline,prefetch}`, `--transcript-cache` (ghi dần, chạy lại
+  không phải transcribe lại), `--asr-model` nhận nhiều checkpoint và **từ chối repo chưa pin revision**.
+- Metrics thêm `asr_revision`, `asr_phase`; `seconds` và `over_30_seconds` vẫn cộng cả thời gian ASR
+  của pha trước, để không tự lừa mình là đã đạt mốc 30s.
+
+### Kết quả (đúng 5 mẫu của v3, so trực tiếp)
+
+| Mẫu | v3 tổng / ASR | v4 tổng / ASR |
+|---|---|---|
+| public_0002 | 40.4 / 17.8 | 35.5 / 5.4 |
+| public_0003 | 30.2 / 21.0 | 16.5 / 7.0 |
+| public_0004 | 40.0 / 16.4 | 28.1 / 2.9 |
+| public_0005 | 47.1 / 16.5 | 35.1 / 3.0 |
+| public_0006 | 95.8 / 41.3 | 56.0 / 5.6 |
+| **trung bình** | **50.7s** | **34.2s** |
+
+ASR nhanh **4.7x** (22.6s → 4.8s/mẫu), tổng nhanh **1.48x** → **600 mẫu: 8.4h → 5.7h**.
+**`tool_calls` giống hệt v3 trên cả 5 mẫu** — thuần tốc độ, không đánh đổi chất lượng gì.
+
+### Còn tồn đọng (đừng lặp lại những gì ở trên)
+
+- **ASR là trần điểm thật, không phải routing.** `public_0003` ra "nếu may mới thì dời chạy vốn sáng
+  may mốn hai tiếng nhắn nhắt em nhắn báo giờ mới ra hư nha không mới thì thôi" — routing chọn sai
+  app (`ride_hailing`) vì transcript không còn thông tin gì để chọn đúng. WER 23.59% trên `train`
+  nghĩa là **cứ 4 từ sai 1 từ**; sửa routing không cứu được. Hướng chưa thử: ghép nhiều ASR
+  (PhoWhisper + turbo) rồi chọn/hợp nhất, hoặc đưa cả 2 transcript cho LLM tự chọn — đổi thời gian
+  lấy độ chính xác, giờ đã có ngân sách thời gian để làm.
+- **`public_0006` trả lời bằng văn xuôi rồi dừng** ("Mưa không xảy ra vào ngày mai...") thay vì thực
+  hiện phần việc còn lại. Chưa rõ gold label có yêu cầu hành động không → cần chạy `train` có nhãn.
+- **Vẫn chưa chạy `train` để đo F1 thật.** Tất cả kết luận về chất lượng tới giờ là suy đoán từ
+  transcript và tool call, chưa đối chiếu nhãn. Đây là việc đáng làm nhất tiếp theo, **không tốn lượt nộp**.
+- `public_0009` từng `stop_reason=error` trong lần chạy 10 mẫu — chưa truy nguyên.
+- Notebook v9 vẫn mang bug parser của v2 (`_parse_decision` nhận tool call dạng văn xuôi là câu trả
+  lời cuối → nộp 0 tool call). Chưa port.
+
+---
+
 ## local v3 – tối ưu tốc độ để laptop chạy đủ tập <24h (2026-10-31)
 
 Mục tiêu: biến laptop RTX 2050 4GB thành công cụ thử nghiệm thật — chạy đủ 600 mẫu `public_test`

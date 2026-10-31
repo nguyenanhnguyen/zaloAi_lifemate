@@ -5,8 +5,9 @@ Một pipeline suy luận: audio tiếng Việt → ASR → LLM chọn tool → 
 ## Cấu trúc
 
 - `scripts/infer.py`: lệnh chạy duy nhất, đọc split và ghi bài nộp.
-- `src/asr.py`: nhận dạng giọng nói bằng `vinai/PhoWhisper-large` qua `transformers`, GPU, batch cả
-  history của 1 mẫu trong 1 lượt.
+- `src/asr.py`: nhận dạng giọng nói qua `transformers`, batch cả history của 1 mẫu trong 1 lượt.
+  `ASR_MODELS` giữ các checkpoint đã kiểm tra luật (repo → revision pin); mặc định
+  `vinai/PhoWhisper-large`.
 - `src/llm_agent.py`: `Qwen/Qwen3-4B-Instruct-2507` bf16 qua `transformers`, GPU, tái dùng KV-cache
   giữa các lượt tool trong 1 mẫu, tự nén/định tuyến schema tool để vừa context.
 - `src/models.py`: tiện ích tải/định vị checkpoint Hugging Face dùng chung cho ASR và LLM.
@@ -36,16 +37,39 @@ python scripts/infer.py --split public_test --max-samples 1 --max-seconds 3600 \
   --output debug.jsonl --metrics-output debug.metrics.jsonl
 ```
 
-5. Chạy đủ tập (xem mục "Ước tính thời gian" dưới — trên máy yếu có thể mất nhiều ngày, nên cân
-   nhắc chạy trên Kaggle thay vì ở đây):
+5. **Chạy đủ tập để có file nộp** (laptop RTX 2050: đo được ~5.7 giờ cho 600 mẫu):
 
 ```bash
-python scripts/infer.py --split public_test --output submission.jsonl
+python scripts/infer.py --split public_test --max-seconds 3600 --output submission.jsonl
 ```
 
-Mặc định `--max-seconds 30` (đúng luật A30 của BTC). Dùng `--max-seconds` lớn hơn (vd. `3600`) chỉ
-để nghiên cứu cục bộ — thời gian vượt 30s/mẫu không đạt giới hạn cuộc thi, nhưng cần ngân sách rộng
-trên máy yếu để pipeline hoàn tất tự nhiên (DONE/asked_missing) thay vì bị cắt lúc đang suy luận.
+`--max-seconds 3600` là **bắt buộc trên laptop này**: mặc định là 30 (đúng luật A30 của BTC), nhưng
+laptop chạy ~34s/mẫu nên ngân sách 30s sẽ cắt ngang lúc đang suy luận và làm hỏng phần lớn mẫu. Thời
+gian vượt 30s/mẫu không đạt giới hạn cuộc thi — nhưng `tool_calls` và `state_hash` thu được vẫn đúng
+để đối chiếu chất lượng, còn tốc độ thật thì đo trên A30/Kaggle.
+
+Nếu bị ngắt giữa chừng, chạy lại đúng lệnh trên kèm `--resume` — vừa giữ các mẫu đã xong, vừa dùng
+lại `submission.transcripts.jsonl` nên không phải chạy ASR lại.
+
+6. Kiểm tra file nộp trước khi nộp:
+
+```bash
+python -c "import json;rows=[json.loads(l) for l in open('submission.jsonl',encoding='utf-8') if l.strip()];print(len(rows),'mẫu');print('schema ok',all(set(r)=={'id','tool_calls','state_hash'} for r in rows))"
+```
+
+## Đo điểm thật mà không tốn lượt nộp
+
+Chỉ split `train` có nhãn. Chạy rồi chấm bằng đúng công thức BTC:
+
+```bash
+python scripts/infer.py --split train --max-samples 100 --max-seconds 3600 --output train_check.jsonl
+python scripts/score.py train_check.jsonl --split train
+```
+
+`scripts/score.py` dựng lại `state_hash` chuẩn bằng cách replay `tool_calls` trong nhãn qua một
+`ToolEnv` mới (nhãn không chứa hash sẵn), rồi tính F1 tool-call với các tham số `x-match: "fuzzy"`
+chấm bằng token-F1 > 0.6 — giống cách BTC tái lập kết quả của ta. Nó in thêm phần tách nguyên nhân
+mất điểm (lệch `state_hash`, gold rỗng, số mẫu 0 điểm) và danh sách mẫu điểm thấp nhất để truy lỗi.
 
 ## Cấu hình mô hình & giới hạn (đúng luật BTC)
 
@@ -55,21 +79,44 @@ trên máy yếu để pipeline hoàn tất tự nhiên (DONE/asked_missing) tha
   **context 4096 token** (≤16384 theo luật), và **prompt cắt về ~1800 token** qua
   `--prompt-token-budget` — đây là đòn tăng tốc lớn nhất trên GPU nhỏ (prompt 3.9k token khiến
   prefill mất 252s, prompt 1k chỉ 5.5s; xem `EXPERIMENTS.md`).
-- Trên GPU dưới 10 GiB VRAM, mặc định `auto` chọn **LLM 4-bit + ASR trên CPU** để trọng số LLM nằm
-  trọn trong VRAM (bf16 8.0 GB tràn ra RAM và chậm gấp ~20 lần). Cấu hình này được **log rõ và ghi
-  vào metrics**; dùng `--llm-precision bf16 --asr-device cuda` để chạy đúng như A30.
+- Trên GPU dưới 10 GiB VRAM, mặc định `auto` chọn **LLM 4-bit + ASR chạy thành pha riêng trên GPU**:
+  trọng số LLM nằm trọn trong VRAM (bf16 8.0 GB tràn ra RAM và chậm gấp ~20 lần), còn ASR được dùng
+  cả card một mình ở pha trước (3.1s/file thay vì 24.5s trên CPU, transcript y hệt). Cấu hình này
+  được **log rõ và ghi vào metrics**; dùng `--llm-precision bf16 --asr-phase inline` để chạy đúng A30.
 
 ## Ước tính thời gian (đo thật, không phải lý thuyết)
 
-Trên **laptop RTX 2050 4GB + 32GB RAM**, cấu hình mặc định hiện tại (LLM 4-bit resident, ASR trên
-CPU, prompt cắt về ~1800 token): **~51s/mẫu** (n=5, dao động 30-96s) → **~8.4 giờ cho 600 mẫu**
-(xấu nhất ~16h). Đủ để chạy hết `public_test` trong một đêm.
+Trên **laptop RTX 2050 4GB + 32GB RAM**, cấu hình mặc định hiện tại: **~34s/mẫu** (n=5, dao động
+16-56s) → **~5.7 giờ cho 600 mẫu**. Đủ chạy hết `public_test` trong một đêm.
 
-Trước khi tối ưu, cấu hình bf16 + prompt 3.9k token mất **~1027s/mẫu ≈ 171 giờ** — nghẽn là prefill
-vượt VRAM, không phải GPU yếu. Chi tiết benchmark và từng thay đổi nằm trong `EXPERIMENTS.md`.
+| Phiên bản | s/mẫu | 600 mẫu | Thay đổi |
+|---|---|---|---|
+| v2 (bf16, prompt 3.9k) | 1027 | 171 h | nghẽn prefill tràn VRAM |
+| v3 (4-bit, prompt 1800, ASR trên CPU) | 51 | 8.4 h | cắt prompt |
+| **v4 (ASR thành pha riêng trên GPU)** | **34** | **5.7 h** | ASR nhanh 4.7x, `tool_calls` không đổi |
 
-Lưu ý: cấu hình nhanh này (4-bit, prompt cắt) **khác** cấu hình nộp bài trên A30 (bf16), nên điểm đo
-cục bộ không dự đoán chính xác điểm leaderboard. Dùng `--llm-precision bf16` khi cần đối chiếu đúng.
+Lưu ý: cấu hình nhanh này (4-bit, prompt cắt, ASR tách pha) **khác** cấu hình nộp bài trên A30
+(bf16, inline), nên điểm đo cục bộ không dự đoán chính xác điểm leaderboard. Dùng
+`--llm-precision bf16 --asr-phase inline` khi cần đối chiếu đúng.
+
+## So sánh model ASR (đã đo, đừng đo lại)
+
+```bash
+# Đo WER thật trên split train (có nhãn audio_text), không tốn lượt nộp
+python scripts/infer.py --split train --max-samples 30 --asr-model erax-ai/EraX-WoW-Turbo-V1.1 \
+  --max-seconds 3600 --output train_erax.jsonl
+```
+
+| ASR | Params | WER (n=12, train) | GPU s/file |
+|---|---|---|---|
+| **`vinai/PhoWhisper-large`** (đang dùng) | 1.543B | **23.59%** | 3.1 |
+| `erax-ai/EraX-WoW-Turbo-V1.1` | 809M | 28.17% | 0.9 |
+| `openai/whisper-large-v3-turbo` | 809M | 28.87% | 1.0 |
+
+Kết luận: **giữ PhoWhisper-large.** Hai model turbo nhanh hơn 3x nhưng WER tệ hơn ~5 điểm, và model
+đối chứng cho thấy fine-tune tiếng Việt của EraX chỉ hơn base 0.7 điểm — thứ quyết định là độ sâu
+decoder (32 lớp vs 4), không phải dữ liệu huấn luyện. Chi tiết và danh sách ứng viên bị loại vì luật
+(tham số/giấy phép/ngôn ngữ) nằm trong `EXPERIMENTS.md`.
 
 ## Kiểm soát khi chạy trên laptop yếu VRAM
 

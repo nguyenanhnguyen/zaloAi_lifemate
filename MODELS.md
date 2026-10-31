@@ -11,6 +11,24 @@ sau này) — mỗi lệnh tự trỏ đúng nơi, xem phần "Lệnh" dưới �
 | `vinai/PhoWhisper-large` | ASR (`src/asr.py`) — đổi từ Qwen3-ASR-0.6B vì WER tiếng Việt thấp hơn hẳn, xem `EXPERIMENTS.md` | `D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--vinai--PhoWhisper-large` |
 | `Qwen/Qwen3-4B-Instruct-2507` | LLM tool-calling (`src/llm_agent.py`) | `D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--Qwen--Qwen3-4B-Instruct-2507` |
 
+### ASR đã thử và **đã bị loại** — giữ lại để đối chiếu, không dùng để nộp
+
+Cả hai đã đo trên split `train` có nhãn và **thua PhoWhisper-large ~5 điểm WER** (xem `EXPERIMENTS.md`
+mục local v4). Vẫn nằm trong `ASR_MODELS` của `src/asr.py` để chạy lại bằng `--asr-model`, và để thử
+hướng ghép nhiều ASR còn đang tồn đọng.
+
+| Model | Dung lượng | Nơi lưu |
+|---|---|---|
+| `erax-ai/EraX-WoW-Turbo-V1.1` | 1.6 GB | `...\hf-cache\hub\models--erax-ai--EraX-WoW-Turbo-V1.1` |
+| `openai/whisper-large-v3-turbo` | 1.6 GB | `...\hf-cache\hub\models--openai--whisper-large-v3-turbo` |
+
+Xoá nếu cần chỗ (tải lại được bằng `--prepare-only --asr-model <repo>`):
+
+```powershell
+Remove-Item -Recurse -Force D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--erax-ai--EraX-WoW-Turbo-V1.1
+Remove-Item -Recurse -Force D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--openai--whisper-large-v3-turbo
+```
+
 ## Chạy full bf16 trên GPU 4GB (RTX 2050) — ĐÃ XÁC NHẬN chạy được, không cần đổi driver
 
 Pipeline **không** tự hạ precision xuống 4-bit hay đẩy model sang CPU để "vừa" VRAM nhỏ — chạy đúng
