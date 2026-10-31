@@ -4,6 +4,68 @@ Ghi lại từng lần chạy: tên run, mô hình, điểm chính thức và nh
 
 ---
 
+## local/kaggle unified v2 – ASR đổi sang PhoWhisper-large (2026-10-31, đang thử nghiệm)
+
+### Research — vì sao đổi ASR lần 2 (Qwen3-ASR-0.6B → PhoWhisper-large)
+
+Yêu cầu: mỗi lần chạy (local hay Kaggle) phải là một thử nghiệm thật, ảnh hưởng rõ đến điểm, không
+chỉ sửa vài dòng không đáng kể. Đã khảo sát 2 hướng:
+
+**Hướng 1 — AWQ-quantize LLM để chạy nhanh trên máy yếu**: thử `autoawq` + checkpoint
+`cyankiwi/Qwen3-4B-Instruct-2507-AWQ-4bit`. **Bỏ** vì: autoawq chính thức *deprecated*, tác giả nói
+rõ "no longer be maintained", bản test cuối của họ là Torch 2.6/Transformers 4.51 (máy ta đang
+2.10/5.13 — cách 2 major version), cần cài thêm `datasets` mới import được, cảnh báo thiếu
+`triton`/`zstandard`. Rủi ro gãy giữa lúc đóng băng Docker nộp bài (hạn 16/11) là không chấp nhận
+được, trong khi lợi ích chỉ là tốc độ **trên máy dev yếu** — A30 thật (24GB) đã đủ nhanh với bf16
+theo chính ước tính của `docs/context.txt` (~2.5s/mẫu). Không mang lại điểm số, chỉ mang lại rủi ro.
+
+**Hướng 2 — đổi ASR sang model Vietnamese-specific**: tìm thấy benchmark ngoài
+([TSPC, arXiv 2509.05983](https://arxiv.org/pdf/2509.05983)) so `vinai/PhoWhisper-base` (74M, train
+riêng cho tiếng Việt) với `Qwen/Qwen3-ASR-0.6B` (782M, đa ngôn ngữ): **PhoWhisper-base WER 14.05 vs
+Qwen3-ASR-0.6B WER 22.47** trên cùng test Việt — chênh rất lớn dù PhoWhisper-base nhỏ hơn 10 lần.
+Giấy của PhoWhisper tự báo cáo bản `-large` là SOTA trên các benchmark tiếng Việt khi phát hành.
+
+**Quyết định**: đổi ASR sang `vinai/PhoWhisper-large` (1.55B, BSD-3-Clause, phát hành 2023-12,
+cập nhật lần cuối 2024-11 — chắc chắn trước hạn 26/10/2026). Tổng hệ thống
+1.55B (ASR) + 4.02B (LLM) = **5.57B < 6B**, LLM vẫn 4.02B < 5B — đúng luật. Đây là thay đổi tác động
+thật đến WER/F1 cuối, không phải chỉnh sửa nhỏ. Không đổi LLM lần này (giữ Qwen3-4B-Instruct-2507
+bf16, đã xác minh hỗ trợ tool-calling qua `apply_chat_template`).
+
+### Thay đổi code
+- `src/asr.py`: `Qwen3ASR` → `PhoWhisperASR`, dùng kiến trúc Whisper chuẩn
+  (`AutoModelForSpeechSeq2Seq` + `AutoProcessor`, API `generate()`/`batch_decode()` quen thuộc, đã
+  dùng ổn định nhiều năm trong `transformers`) thay cho API `Qwen3ASRForConditionalGeneration` rất
+  mới và hẹp người dùng. Vẫn giữ batch toàn bộ audio 1 mẫu trong 1 lượt GPU, vẫn giữ auto-fallback
+  CPU khi VRAM < 6GiB free (máy dev yếu).
+- `src/pipeline.py`, `scripts/infer.py`: đổi type hint/import theo tên class mới.
+- `lifemate_kaggle.ipynb`: *(đang cập nhật — xem ghi chú dưới, chưa hoàn tất khi viết dòng này)*.
+
+### Trạng thái thử nghiệm — ĐÃ XÁC NHẬN đúng trên local (public_0002)
+
+So trực tiếp transcript cùng 1 mẫu (`public_0002`, audio: "Đặt xe bốn chỗ thử công ty đi khám răng
+chiều nay, đặt ngay bây giờ nhé!"):
+
+| ASR | Transcript | Đúng? |
+|---|---|---|
+| PhoASR-whisper-small (baseline 22.52, đã xoá) | "Đặt xe bốn chỗ thử công ty đi khám **răng** chiều nay, đặt ngay bây giờ nhé!" | Đúng |
+| Qwen3-ASR-0.6B-hf (v2 trước khi sửa, đã xoá) | "đặt xe bốn chỗ ở tại công ty đi khám **gan** chiều nay đặt ngay bây giờ nhé" | **Sai** (răng→gan) |
+| **PhoWhisper-large (v2 hiện tại)** | "đặt xe bốn chỗ thử công ty đi khám **răng** chiều nay đặt ngay bây giờ nhé." | **Đúng**, khớp cả câu chữ với baseline |
+
+Xác nhận nghiên cứu đúng: PhoWhisper-large sửa đúng lỗi mà Qwen3-ASR-0.6B mắc, khớp hoàn toàn với
+baseline PhoASR cũ — không đánh đổi chất lượng ASR để đổi kiến trúc.
+
+- **Bug phát hiện khi tích hợp**: `src/models.py::model_path()` chỉ nhận file `*.safetensors` làm
+  "trọng số hợp lệ"; PhoWhisper-large chỉ phát hành `pytorch_model.bin` (không có safetensors) nên
+  bị báo "Weights missing" sai. Đã sửa: nhận cả `*.bin`.
+- **Local**: ASR chạy đúng (CPU, VRAM dồn cho LLM). LLM 4-bit NF4 trên RTX 2050 4GB vẫn rất chậm
+  (920s cho 1 lượt, giống trước khi đổi ASR) — **không phải do PhoWhisper**, là hạn chế phần cứng đã
+  biết của máy dev, không đại diện tốc độ thật trên A30 (xem mục trước).
+- **Kaggle**: *(tiếp theo — đồng bộ `lifemate_kaggle.ipynb` sang PhoWhisper-large để nhất quán)*
+- **Điểm**: *chờ chạy đủ `public_test` (trên Kaggle, không phải máy dev) và nộp để có điểm leaderboard
+  đối chiếu với baseline 22.52*
+
+---
+
 ## v1–v4 (local, baseline)
 - **Pipeline**: Whisper + Qwen2.5-3B llama.cpp
 - **Điểm**: chưa ghi nhận / thử nghiệm ban đầu
@@ -48,6 +110,64 @@ Ghi lại từng lần chạy: tên run, mô hình, điểm chính thức và nh
 
 ---
 
+## local/kaggle unified – `transformers` GPU, Qwen3-ASR-0.6B + Qwen3-4B-Instruct-2507 (2026-10-31)
+
+### Research — vì sao đổi model/backend
+
+Luật cuộc thi (`docs/context.txt`): hệ thống <6B tham số, LLM <5B, context ≤16384, chạy offline,
+**30 giây/mẫu trên 1×A30 24GB + Xeon 16 core + 64GB RAM**, decode tất định (greedy/temperature=0),
+chỉ dùng model/license mở phát hành trước 26/10/2026, không fine-tune bằng nhãn public/private test.
+
+**Phát hiện quan trọng**: baseline 22.52 điểm (local, llama.cpp CPU) chạy 50–471 giây/mẫu —
+**vượt xa giới hạn 30 giây của BTC**. Điểm 22.52 chỉ phản ánh chất lượng tool-calling khi không bị
+giới hạn thời gian; nếu nộp đúng luật, toàn bộ mẫu sẽ bị tính 0 điểm vì time-out. Đây là lỗi nghiêm
+trọng hơn bất kỳ lỗi notebook Kaggle — pipeline cũ **không khả thi để nộp bài**.
+
+Nguyên nhân: `llm_agent.py` cũ chạy Qwen3.5-4B **Q8 GGUF qua llama-server trên CPU** (chỉ 787MB
+VRAM dùng, phần lớn tính toán rơi vào CPU/RAM) → chậm gấp hàng chục lần so với chạy thẳng trên GPU.
+
+**Xác minh model thay thế** (tra trực tiếp model card HuggingFace):
+
+| Model | Tham số | License | Ngày | Hỗ trợ |
+|---|---|---|---|---|
+| `Qwen/Qwen3-4B-Instruct-2507` | 4.0B (BF16) | Apache-2.0 | kỹ thuật báo cáo 05/2025 | context 262K native, tool-calling qua `apply_chat_template(tools=...)` |
+| `Qwen/Qwen3-ASR-0.6B-hf` | 0.8B (BF16) | Apache-2.0 | bài báo 01/2026, bảng WER 06/2026 | 30 ngôn ngữ gồm tiếng Việt, batch nhiều audio 1 lượt qua `apply_transcription_request`, cần `transformers>=5.13.0` |
+| `Qualcomm-AI-Research/PhoASR-whisper-small` (cũ) | 0.2B (F32) | BSD-3-Clause-Clear + Qualcomm RAI | EACL 2026 | fine-tune whisper-small trên 3000h, không có WER tiếng Việt công khai |
+
+**Quyết định**: chuyển cả 2 model sang chạy thẳng qua `transformers` trên GPU (bf16), bỏ hoàn toàn
+llama.cpp. Tổng tham số 4.8B (< 6B), LLM 4.0B (< 5B) — đúng luật. Thống nhất code local và Kaggle
+(cùng 2 model), xoá sự khác biệt từng gây khó bảo trì.
+
+### Thay đổi code
+- `src/asr.py`: `WhisperASR` → `Qwen3ASR`, batch toàn bộ audio của 1 mẫu (request + history) trong
+  một lượt GPU duy nhất (giảm số lần gọi model, khớp cách Kaggle notebook đã làm).
+- `src/llm_agent.py`: bỏ subprocess llama-server, dùng `AutoModelForCausalLM` + KV-cache reuse giữa
+  các lượt tool trong cùng 1 mẫu (copy logic từ Kaggle `ToolModel.decide`, đã kiểm tra tính đúng).
+- `src/models.py` (mới): tiện ích tải/định vị checkpoint HF dùng chung cho ASR và LLM.
+- `src/pipeline.py`: gọi `llm_agent.reset()` đầu mỗi mẫu (bắt buộc vì giờ cache KV là state có thật
+  trên GPU, không như llama-server tự quản lý theo slot); ASR giờ gọi `transcribe_batch` 1 lần.
+- `scripts/infer.py`: bỏ `--gpu-layers`, `--thinking-tokens`, `--asr-beams` (không còn áp dụng);
+  `--max-seconds` mặc định đổi từ 600 → 30 để khớp luật thi thay vì chế độ "nghiên cứu chất lượng".
+- GPU/CPU: không cấu hình gì thêm — `.to("cuda")`; máy yếu VRAM sẽ tự swap sang shared GPU memory
+  của Windows (chậm hơn nhưng không cần chỉnh layer CPU/GPU thủ công như llama.cpp cũ).
+
+### Baseline cũ để đối chiếu
+File metrics gốc (50 mẫu public_test, llama.cpp CPU, 22.52 điểm) đã được chép lại nguyên văn phía
+trên mục *"local – PhoASR-small + Qwen3.5-4B Q8 (llama.cpp)"* — dùng mục đó để so sánh **chất lượng
+tool-calling** (không so sánh thời gian, vì bản cũ không đúng luật 30s).
+
+- **Điểm chính thức**: *chờ chạy `scripts/infer.py --split public_test` và nộp để lấy điểm leaderboard*
+- **Cách đối chiếu khi có kết quả mới**:
+  1. So `stop_reason` theo từng `id` giữa `runs/baseline_llamacpp_qwen3.5-4b_q8/submission.metrics.jsonl`
+     (nếu còn giữ bản chép) và `submission.metrics.jsonl` mới — tìm mẫu đổi từ `done`→lỗi hoặc ngược lại.
+  2. So `transcript` (ASR) giữa hai bản để xem Qwen3-ASR-0.6B có đọc đúng hơn PhoASR-whisper-small không.
+  3. Kiểm `seconds` mới phải <30s mọi mẫu trên GPU thật (A30/laptop RTX) — nếu không, giảm
+     `--max-new-tokens`/`--context-size` hoặc bớt `--max-steps` trước khi nộp.
+  4. Điểm leaderboard công khai (Zalo AI Challenge portal) là thước đo chính thức duy nhất, log local
+     chỉ để debug nguyên nhân tăng/giảm.
+
+---
+
 ## Bài học rút ra
 
 | Vấn đề | Nguyên nhân | Cách xử lý |
@@ -57,3 +177,5 @@ Ghi lại từng lần chạy: tên run, mô hình, điểm chính thức và nh
 | Assert cứng trên số tham số | Revision model có thể thay đổi nhẹ | Chuyển thành warning, chỉ giữ kiểm tra giới hạn tổng |
 | llama.cpp CPU quá chậm | Llama.cpp không offload VRAM đủ trên Windows | Dùng transformers full GPU (Kaggle A30/T4) |
 | `code_hash` tĩnh trong fingerprint | Hash tính tay, lỗi thời khi sửa notebook | Dùng `pipeline_version` string |
+| Điểm local cao nhưng không khớp luật | Chỉ đo chất lượng, quên giới hạn 30s/mẫu của BTC | Luôn đối chiếu `seconds` trong metrics với 30s trước khi tin điểm |
+| llama.cpp CPU vs transformers GPU | llama.cpp tiện cho máy yếu nhưng sai hướng tối ưu (BTC chạy A30 GPU) | Nhắm đúng hardware chấm điểm (A30), chạy local bằng GPU + shared VRAM tự nhiên |

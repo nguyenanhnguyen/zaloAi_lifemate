@@ -4,10 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import time
-import unicodedata
 from pathlib import Path
 
-from .asr import WhisperASR
+from .asr import PhoWhisperASR
 from .llm_agent import LLMAgent
 
 logger = logging.getLogger(__name__)
@@ -48,7 +47,7 @@ def _native_tools(tools: list[dict]) -> list[dict]:
 
 
 class Pipeline:
-    def __init__(self, asr_model: WhisperASR, llm_agent: LLMAgent,
+    def __init__(self, asr_model: PhoWhisperASR, llm_agent: LLMAgent,
                  *, max_steps: int = MAX_STEPS, max_seconds: float = 600) -> None:
         self.asr_model = asr_model
         self.llm_agent = llm_agent
@@ -67,23 +66,26 @@ class Pipeline:
         self.last_asr_seconds = self.last_llm_seconds = 0.0
         self.last_transcript = ""
         self.steps = 0
+        self.llm_agent.reset()  # fresh sample: no KV-cache prefix carries over
         tools = _available_tools(catalog, item.get("context", {}).get("installed_apps", {}))
         names = {tool["name"] for tool in tools}
         native_tools = _native_tools(tools)
+        # One batched GPU call for the main request plus every user-turn audio in history.
+        history_audio_turns = [turn for turn in item.get("history", [])
+                               if turn.get("role") == "user" and turn.get("audio")]
+        if history_audio_turns and split_dir is None:
+            raise ValueError("split_dir required for history audio")
+        paths = [audio_path] + [split_dir / turn["audio"] for turn in history_audio_turns]
         asr_started = time.perf_counter()
         try:
-            transcript = self.asr_model.transcribe(audio_path, deadline=deadline)
-            self.last_transcript = unicodedata.normalize("NFC", transcript).strip()
+            transcripts = self.asr_model.transcribe_batch(paths, deadline=deadline)
+            self.last_transcript = transcripts[0]
             # Train-only audio_text/labels must never become model input.
             history = []
+            audio_iter = iter(transcripts[1:])
             for turn in item.get("history", []):
                 if turn.get("role") == "user":
-                    if turn.get("audio"):
-                        if split_dir is None:
-                            raise ValueError("split_dir required for history audio")
-                        text = self.asr_model.transcribe(split_dir / turn["audio"], deadline=deadline)
-                    else:
-                        text = turn.get("text", "")
+                    text = next(audio_iter) if turn.get("audio") else turn.get("text", "")
                     history.append({"role": "user", "text": text})
                 elif turn.get("role") == "assistant":
                     history.append({key: turn[key] for key in ("role", "text", "tool_calls", "tool_results")
@@ -108,7 +110,9 @@ class Pipeline:
                 break
             llm_started = time.perf_counter()
             try:
-                response = self.llm_agent.generate(messages, tools=native_tools, deadline=deadline)
+                # Tool results lengthen the conversation; re-fit before every LLM turn.
+                prompt_tools = self.llm_agent.fit_tools(messages, native_tools, self.last_transcript)
+                response = self.llm_agent.generate(messages, tools=prompt_tools, deadline=deadline)
             except TimeoutError:
                 self.stop_reason = "time_limit"
                 break
