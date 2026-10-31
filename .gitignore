@@ -3,5 +3,7 @@ env/
 models/
 checkpoints/
 __pycache__/
-*.jsonl 
-notebook/results
+*.jsonl
+# ...but the archive of finished runs is the point of keeping them: see results/README.md
+results/
+*.log

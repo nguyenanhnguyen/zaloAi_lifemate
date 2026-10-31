@@ -15,8 +15,11 @@ Một pipeline suy luận: audio tiếng Việt → ASR → LLM chọn tool → 
 - `docs/context.txt`, `docs/evaluation.png`: bản ghi quy định và công thức chấm điểm của BTC.
 - `lifemate_kaggle.ipynb`: pipeline tương đương để chạy trên Kaggle GPU (T4/A30) — nhanh hơn laptop
   nhiều lần, dùng khi cần chạy đủ `public_test`/`private_test`.
-- `EXPERIMENTS.md`: lịch sử từng lần chạy, model dùng, điểm đạt được và lý do đổi hướng — đọc trước
-  khi đổi model/pipeline để không lặp lại thử nghiệm đã có kết luận.
+- `EXPERIMENTS.md`: lịch sử suy luận — vì sao đổi model/pipeline, hướng nào đã thử và bị loại. Đọc
+  trước khi đổi model/pipeline để không lặp lại thử nghiệm đã có kết luận.
+- `results/`: **lưu trữ các lần chạy đã thành công**, mỗi phiên bản một thư mục
+  (`local_v<N>/`, `kaggle_v<N>/`) gồm file kết quả và một `.md` ghi cấu hình, số đo, điểm, bài học.
+  Chỉ thêm, không ghi đè. Xem [results/README.md](results/README.md).
 - `MODELS.md`: model nào lưu ở đâu, dọn cache, chi tiết kỹ thuật việc chạy bf16 trên GPU nhỏ.
 
 ## Chạy lần đầu
