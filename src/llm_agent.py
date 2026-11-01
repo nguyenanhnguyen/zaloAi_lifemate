@@ -106,7 +106,7 @@ class LLMAgent:
 
     def __init__(self, model_name: str | None = None, *, context_size: int = 4096,
                  max_new_tokens: int = 256, precision: str = "bf16",
-                 prompt_token_budget: int = 1800) -> None:
+                 prompt_token_budget: int = 1800, adapter: str | None = None) -> None:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
@@ -143,6 +143,17 @@ class LLMAgent:
         )
         if quantization_config is None:
             self.llm = self.llm.to(self.device)
+        if adapter:
+            # A LoRA adapter from scripts/train_sft.py. In bf16 it is merged into the weights, which
+            # leaves a plain Qwen3 model: same parameter count, so the <6B rule is untouched, and
+            # the KV-cache prefix reuse below keeps working unchanged. Merging into 4-bit weights
+            # would quantise the delta too, so there the adapter stays attached instead.
+            from peft import PeftModel
+            logger.info("Loading LoRA adapter %s", adapter)
+            self.llm = PeftModel.from_pretrained(self.llm, adapter, local_files_only=True)
+            if quantization_config is None:
+                self.llm = self.llm.merge_and_unload()
+                logger.info("Adapter merged into the base weights")
         self.llm.eval()
         self.cache = None
         self.cached_ids: list[int] = []
