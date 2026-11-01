@@ -2,6 +2,9 @@
 
 Một pipeline suy luận: audio tiếng Việt → ASR → LLM chọn tool → `ToolEnv` → `submission.jsonl`.
 
+👉 **Việc cần làm bây giờ, theo thứ tự: [RUNBOOK.md](RUNBOOK.md).** File này mô tả hệ thống; RUNBOOK
+mô tả các bước phải bấm tay trên Kaggle và đọc số nào để ra quyết định.
+
 ## Cấu trúc
 
 - `scripts/infer.py`: lệnh chạy duy nhất, đọc split và ghi bài nộp.
