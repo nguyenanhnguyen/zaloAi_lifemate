@@ -169,6 +169,66 @@ số này. Chỉ sau khi điểm chấp nhận được mới chạy `public_tes
 
 ---
 
+## Phân tách nguyên nhân lệch `state_hash` – **chỗ nghẽn là HÀNH VI, không phải nhận thức** (2026-11-01)
+
+Đo trên 100 mẫu `local_v4`, không dùng GPU. Chỉ call `kind: "write"` đổi được `state_hash`, nên phân
+loại theo đúng tập call ghi:
+
+| | % | |
+|---|---|---|
+| **C. gold ghi, ta KHÔNG ghi** | **48%** | **bỏ việc** |
+| D. ghi sai tool | 23% | |
+| F. đúng tool, sai đối số | 14% | |
+| A. không bên nào ghi | 12% | hash phải khớp |
+| B. gold không ghi, ta ghi | 3% | bịa thao tác |
+
+88% mẫu lệch ở tầng ghi, khớp với 86% lệch `state_hash` đã ghi nhận. Bucket C lớn gấp đôi mọi thứ
+khác. Nội dung của nó: `bill_payment.pay` 18, `banking.transfer` 8 — **model chùn tay đúng ở chỗ
+tiền chuyển đi**.
+
+**Bucket C: không thể hay không chịu?** Tool ghi của gold **được phép gọi ở 48/48 mẫu** — chưa một
+lần là vấn đề giấy phép. 72.9% dừng ở `asked_missing`, 25% dừng ở `done` với 0 call. Chia tiếp bằng
+phép thử "model có chạm vào đúng app của gold không" (route là theo app, nên chạm được app nghĩa là
+tool ghi có trong prompt):
+
+| | |
+|---|---|
+| Đã chạm đúng app rồi dừng → **thấy tool mà không gọi** | **20.8%** |
+| Gọi app khác hẳn → chọn/route sai app | 29.2% |
+| Không gọi tool read/write nào → không điều tra gì | **50.0%** |
+
+Bằng chứng sạch: `train_0039` gọi `chat_ott.list_chats` (app có trong prompt → tool gửi tin cũng có)
+rồi `sys.ask_missing_info` và dừng; gold chỉ cần gửi tin. `train_0014` gọi `smart_home.get_status`
+hai lần rồi `done`, không bật đèn.
+
+**Phụ 1 — model thêm đối số, gần như không bao giờ thiếu.** Trên 78 call trùng tên gold: **thêm 56
+khoá, thiếu 2**. Một chiều rõ rệt. Trên tool write (`ride_hailing.book.payment` 6,
+`banking.transfer.note` 4, `alarm.create.repeat`/`label` 6) nó phá `state_hash`; trên tool read nó
+phá F1 tool-call. Đây là thứ học từ ví dụ, khó giải thích bằng prompt → đúng việc của SFT.
+
+**Phụ 2 — dạng thời gian.** Gold dùng ISO đầy đủ 455 lần / giờ treo tường 20 lần (95.8% ISO). Ta:
+10 ISO / 4 treo tường. Sai tỉ lệ cao hơn nhưng tuyệt đối chỉ 4 ca — thật nhưng nhỏ, **không phải chỗ
+nghẽn**. Đừng tiêu thời gian vào đây trước.
+
+**Sửa lại khẳng định cũ của tài liệu này:** mục `local v4` nói routing là nguyên nhân lớn nhất.
+Chính xác hơn — routing làm prompt thiếu app, có thật, nhưng bucket lớn nhất là **không hành động**,
+và trong đó 0/48 là thiếu giấy phép, chỉ 29% có dấu vết sai app. Routing là một tầng riêng và nhỏ
+hơn đã ghi.
+
+**Hệ quả: nâng chất lượng ASR là đòn sai.** Kết quả null của chuẩn hoá số không phải do thiếu may
+mắn — nó nhắm vào tầng không phải chỗ nghẽn.
+
+⚠️ **Giới hạn phải nhớ:** `local_v4` chạy context 4096 / budget 1800 — cấu hình bị bóp. Một model
+không thấy tool đúng cũng sẽ đi hỏi, nên **không tách sạch được** "không chịu làm" khỏi "không thấy
+nên phải hỏi"; chỉ nhóm 20.8% là bằng chứng chắc. Thứ tách được hai tầng là **phiên 1 của Kaggle V2**
+(context 12288, không route): hành vi bỏ việc còn → là hành vi, fine-tune là câu trả lời; sụp xuống →
+là nạn đói prompt từ đầu. Chạy nó trước khi thêm thí nghiệm nào ở laptop.
+
+Script: `scratchpad/why_hash.py`, `bucket_c.py`, `couldnt_or_wouldnt.py`, `argfmt.py` (tạm, chạy lại
+được từ `results/local_v4/train_check.jsonl` + nhãn `train`).
+
+---
+
 ## finetune v1 – QLoRA trên trajectory gold (2026-11-01, dữ liệu xong, **chưa huấn luyện**)
 
 `scripts/build_sft.py` + `scripts/train_sft.py`. Vận hành: [`results/finetune_v1/README.md`](results/finetune_v1/README.md).
