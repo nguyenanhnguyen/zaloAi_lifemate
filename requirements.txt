@@ -2,7 +2,8 @@
 torch>=2.6
 transformers>=5.13.0
 accelerate>=1.10,<2
-bitsandbytes>=0.50  # only for --llm-precision 4bit (small-VRAM dev machines); A30 runs bf16
+bitsandbytes>=0.50  # --llm-precision 4bit (máy dev VRAM nhỏ) VÀ QLoRA trong scripts/train_sft.py
+peft>=0.14           # fine-tune (scripts/train_sft.py) và nạp adapter (--adapter)
 huggingface-hub>=0.26
 numpy>=1.26.0
 soundfile>=0.13.0
