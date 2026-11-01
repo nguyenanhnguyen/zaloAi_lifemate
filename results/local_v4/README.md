@@ -1,3 +1,8 @@
+> **Đọc kèm:** dữ liệu của lần chạy này về sau được dùng để phân tách nguyên nhân lệch `state_hash`,
+> và kết luận **sửa lại** phần "router là nguyên nhân lớn nhất" bên dưới: bucket lớn nhất là **model
+> không hành động** (48% mẫu gold cần ghi mà ta không ghi), routing là tầng riêng và nhỏ hơn. Xem
+> mục "Phân tách nguyên nhân lệch `state_hash`" trong [EXPERIMENTS.md](../../EXPERIMENTS.md).
+
 # local_v4 — ASR thành pha riêng trên GPU + **lần đầu chấm điểm thật**
 
 Không phải bài nộp. Đây là lần chạy **100 mẫu split `train` (có nhãn)** để lần đầu tiên trong dự án
