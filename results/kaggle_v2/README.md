@@ -12,9 +12,84 @@ Notebook: [`notebook/lifemate_kaggle_v2.ipynb`](../../notebook/lifemate_kaggle_v
 | 13 | 238 s | traceback bị cắt | — (không chẩn đoán được từ log) |
 | 14 | 227 s | `OutOfMemoryError` 5.00 GiB | `enable_gqa=True` của transformers là đường math kernel, O(N²) |
 | 15 | 1499 s | 4/5 mẫu `LLM token limit reached` | bản **Thinking** tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>` |
+| 16 | — | **chạy thông** | thời gian đã ổn; lộ ra chỗ mất điểm thật (xem mục riêng dưới) |
 
 Từ V15 trở đi hạ tầng đã thông: model nạp xong, prefill ~9160 token chạy qua, 1 mẫu hoàn tất
 đúng (`train_0063`, 1 call, `done`). Những gì còn lại là chất lượng, không phải lỗi hệ thống.
+
+### V16: thời gian hết là vấn đề, và chỗ mất điểm thật lộ ra
+
+Đọc trên 7 mẫu đầu của `events.jsonl`. **Thời gian đã giải quyết:**
+
+| | V1 (13.41) | V16 |
+|---|---|---|
+| trung vị/mẫu trên T4 | 30,6 s | **~17–19 s** |
+| đỉnh `cuda:0` | 12869 MiB | **~9100 MiB** (dư 5,7 GiB) |
+| quy đổi A30 (÷2,9) | ~10,5 s | **~6 s** |
+
+Phép tính bộ nhớ "~13,2 GiB" của tôi ở trên vẫn **bi quan quá**: prefill thật chỉ ~6500 token
+(không phải 9160), nên đỉnh là ~9100 MiB. Dư thoải mái.
+
+Thông lượng vẫn ~8 token/s (`train_0080` lượt 8: 256 token / 31,4 s = 123 ms/token). Đáng chú ý:
+con số đó **không đổi** giữa context 6500 và 9160 → nghẽn là **overhead mỗi token**, không phải băng
+thông, đúng như nghi vấn ở V15. Nhưng giờ nó **không còn quan trọng**, vì đầu ra chỉ 15–35 token.
+
+**Và điểm là 0,00 trên cả 7 mẫu, `state_match` sai cả 7.** Nguyên nhân thì áp đảo và nhất quán:
+
+| mẫu | gold | ta nộp | **call write** | kết cục | model nói gì |
+|---|---|---|---|---|---|
+| `train_0015` | 4 | 3 | **0** | `asked_missing` | "Tôi không thể tìm thấy liên hệ…" |
+| `train_0063` | 1 | 1 | 1 | `done` (văn xuôi) | "Đã gửi tin nhắn…" — ASR sai nội dung |
+| `train_0066` | 1 | 2 | 1 | `done` (văn xuôi) | gọi `alarm.create`, gold có lẽ tool khác |
+| `train_0075` | 3 | 2 | **0** | `done` (văn xuôi) | **"Đã bật đèn phòng khách với độ sáng 50%"** |
+| `train_0080` | 3 | 6 | **0** | `step_limit` | liệt kê 6 loại hoá đơn rồi tóm tắt, **không trả** |
+| `train_0106` | 3 | 1 | **0** | `done` (văn xuôi) | **"sẽ đặt ô tô 4 chỗ…"** |
+| `train_0203` | — | — | **0** | (đang chạy) | `bill_payment.pay` bị từ chối thiếu `bill_id` |
+
+**5/7 mẫu kết thúc bằng `plain_final`. 4/7 không gọi một call `write` nào** trong khi gold có write.
+Model **đọc dữ liệu, rồi viết một câu khẳng định đã làm xong, mà chưa hề gọi tool làm việc đó.**
+
+Đây là **cùng một kết luận** với phân tách `state_hash` trên `local_v4` (48% mẫu gold có write mà ta
+không write; "chỗ nghẽn là hành vi, không phải nhận thức") — nhưng lần này trên dữ liệu hoàn toàn độc
+lập, ở **context 12288, không route**. Tức giả thuyết "model không thấy tool vì prompt bị cắt" đã bị
+loại: nó thấy tool, tìm đúng thiết bị, rồi **không bấm**.
+
+### Cơ chế chính xác, và bản vá
+
+```python
+# parse_decision, dòng 350
+if allow_plain_done and not re.match(r'\s*(?:<tool_call>|[\[{]|```)', text):
+    return None          # -> infer_sample: "if call is None: return 'done'"
+```
+
+`allow_plain_done = bool(env.get_tool_calls())` — bật ngay khi đã có **một call bất kỳ, kể cả read**.
+Nên một câu văn xuôi sau một lần `smart_home.get_status` đóng mẫu lại là `done` với 0 write →
+`state_hash` không đổi → 0 điểm.
+
+Vá, ba phần:
+
+1. **Đẩy lại đúng một lần** khi model trả văn xuôi mà `state_version == 0` (chưa có write nào thành
+   công): *"Mô tả bằng lời KHÔNG tính là đã làm. Nếu chỉ tra cứu thì trả lời DONE."*
+2. **Chỉ khi `state_version == 0`.** Thúc thêm sau khi đã có write dễ sinh write thừa, mà write thừa
+   làm sai `state_hash` vĩnh viễn — tệ hơn là không làm gì.
+3. **Chỉ khi `step < MAX_STEPS`.** Đẩy lại ở lượt cuối thì vòng lặp thành `step_limit` → `failed` →
+   biến một mẫu chỉ-tra-cứu đang được tính `done` thành 0 điểm.
+
+Cộng một dòng vào `SYSTEM_PROMPT`: *"Đọc dữ liệu xong là để hành động, không phải để tóm tắt lại."*
+
+Giá phải trả: ~4 s cho mỗi mẫu chỉ tra cứu (model trả lời `DONE` ở lượt thêm). Trong ngân sách 17 s
+hiện tại thì rẻ. Theo dõi bằng event mới `no_write_pushback` trong `events.jsonl`.
+
+### Hai vấn đề độc lập, nhỏ hơn, đã thấy
+
+**ASR kém hơn tưởng.** WER từng mẫu: 0,60 / 0,33 / 0,17 / 0,14 / 0,13 / 0,12. `train_0015` ra
+*"truyền thông mạng sang này cho chú phạm hồng nhã nữ giải trợ khanh toán hóm đỗ…"*. `train_0063`
+mất điểm **chỉ vì** ASR: nội dung tin nhắn thành "Giở mang tài liệu". Nhưng đây **không** phải nguyên
+nhân chính — `train_0075` thất bại không liên quan gì tới ASR.
+
+**`MAX_STEPS = 8` bị tiêu hoang.** `train_0080` dùng 6 lượt để gọi `bill_payment.list_bills` lần lượt
+cho 6 loại hoá đơn, rồi hết lượt. Chưa sửa: nâng `MAX_STEPS` làm xấu thời gian xấu nhất (8 lượt đã
+là 66 s), và bản vá trên có thể làm model hành động sớm hơn thay vì liệt kê. Đo lại trước khi đổi.
 
 ### V15 cho hai con số chưa từng có
 

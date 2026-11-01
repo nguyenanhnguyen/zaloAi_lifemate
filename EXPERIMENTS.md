@@ -196,6 +196,7 @@ số này. Chỉ sau khi điểm chấp nhận được mới chạy `public_tes
 | 13 | 238 s | traceback bị cắt | — (không chẩn đoán được từ log) |
 | 14 | 227 s | `OutOfMemoryError` 5.00 GiB | `enable_gqa=True` của transformers là đường math kernel, O(N²) |
 | 15 | 1499 s | 4/5 mẫu `LLM token limit reached` | bản **Thinking** tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>` |
+| 16 | — | **chạy thông** | thời gian đã ổn (trung vị ~17–19 s); lộ ra chỗ mất điểm thật |
 
 **Lỗi chung của V11–V13 là của tôi, không phải của dữ liệu người dùng.** Tôi kiểm cú pháp code mình
 viết nhưng không kiểm **những khẳng định** mình dựng lên trên đó. Hai công cụ ra đời để chặn đúng lớp
@@ -262,6 +263,55 @@ Hai sửa đổi độ bền kèm theo: lần cắt thứ hai trả về `stop_r
 đã thực hiện** thay vì làm lỗi cả mẫu (submission chỉ tốt lên hoặc giữ nguyên); và cổng
 3-lỗi-liên-tiếp chỉ còn gắt trên `train` (đang đo → dừng sớm là đúng), nới lên 10 trên `public_test`
 (chết ở mẫu 400/634 sau 6 giờ là mất trắng phiên đó). OOM vẫn giết run ở mọi split.
+
+### V16: thời gian hết là vấn đề — và model **đọc dữ liệu rồi nói dối bằng văn xuôi**
+
+Lần đầu pipeline chạy thông. **Thời gian đã giải quyết:** trung vị ~17–19 s/mẫu trên T4 (V1: 30,6 s),
+đỉnh `cuda:0` ~9100 MiB trong 14912 (V1: 12869), quy đổi A30 còn ~6 s. Phép tính "~13,2 GiB" của tôi
+vẫn bi quan quá — prefill thật ~6500 token, không phải 9160.
+
+Thông lượng vẫn ~8 token/s (`train_0080` lượt 8: 256 token / 31,4 s = 123 ms/token), và **không đổi**
+giữa context 6500 và 9160 → nghẽn là **overhead mỗi token**, không phải băng thông. Nghi vấn ở V15
+được xác nhận, nhưng giờ nó không còn quan trọng vì đầu ra chỉ 15–35 token.
+
+**Điểm 0,00 trên cả 7 mẫu đọc được, `state_match` sai cả 7.** Nguyên nhân áp đảo:
+
+| mẫu | gold | ta | **write** | kết cục | model nói gì |
+|---|---|---|---|---|---|
+| `train_0015` | 4 | 3 | **0** | `asked_missing` | "Tôi không thể tìm thấy liên hệ…" |
+| `train_0063` | 1 | 1 | 1 | `done` (văn xuôi) | "Đã gửi tin nhắn…" — ASR sai nội dung |
+| `train_0066` | 1 | 2 | 1 | `done` (văn xuôi) | `alarm.create`, gold có lẽ tool khác |
+| `train_0075` | 3 | 2 | **0** | `done` (văn xuôi) | **"Đã bật đèn phòng khách với độ sáng 50%"** |
+| `train_0080` | 3 | 6 | **0** | `step_limit` | liệt kê 6 loại hoá đơn rồi tóm tắt, **không trả** |
+| `train_0106` | 3 | 1 | **0** | `done` (văn xuôi) | **"sẽ đặt ô tô 4 chỗ…"** |
+| `train_0203` | — | — | **0** | (đang chạy) | `bill_payment.pay` từ chối vì thiếu `bill_id` |
+
+5/7 kết thúc bằng `plain_final`; **4/7 không gọi một call `write` nào** trong khi gold có write.
+
+**Đây là xác nhận độc lập cho mục "chỗ nghẽn là HÀNH VI, không phải nhận thức" ở trên** — nhưng lần
+này ở context 12288, không route. Giả thuyết "model không thấy tool vì prompt bị cắt" bị loại hẳn:
+nó thấy tool, tìm đúng thiết bị, rồi **không bấm**. Và đó chính là lý do fine-tune là đúng hướng:
+mọi quỹ đạo gold đều gọi tool write.
+
+**Cơ chế chính xác** (`parse_decision` dòng 350): `allow_plain_done = bool(env.get_tool_calls())` bật
+ngay khi đã có một call **bất kỳ, kể cả read**, nên văn xuôi sau một lần `smart_home.get_status` được
+coi là `DONE` → mẫu đóng với 0 write → `state_hash` không đổi → 0 điểm.
+
+**Vá, ba chốt** — mỗi chốt chặn một cách làm hỏng thêm:
+1. Đẩy lại **đúng một lần** khi văn xuôi xuất hiện và `state_version == 0`.
+2. **Chỉ khi `state_version == 0`**: thúc sau khi đã có write dễ sinh write thừa, mà write thừa làm
+   sai `state_hash` vĩnh viễn — tệ hơn không làm gì.
+3. **Chỉ khi `step < MAX_STEPS`**: đẩy ở lượt cuối thì vòng lặp thành `step_limit` → `failed`, biến
+   một mẫu chỉ-tra-cứu đang được tính `done` thành 0 điểm.
+
+Cộng một dòng `SYSTEM_PROMPT`: *"Đọc dữ liệu xong là để hành động, không phải để tóm tắt lại."*
+Event mới `no_write_pushback` để đo xem nó có bắn và có cứu được mẫu nào.
+
+**Hai vấn đề độc lập, nhỏ hơn:** ASR kém hơn tưởng (WER từng mẫu 0,60 / 0,33 / 0,17 / 0,14 / 0,13 /
+0,12; `train_0063` mất điểm *chỉ vì* ASR) — nhưng không phải nguyên nhân chính, `train_0075` thất bại
+không liên quan gì tới ASR. Và `MAX_STEPS = 8` bị tiêu hoang: `train_0080` dùng 6 lượt gọi
+`bill_payment.list_bills` lần lượt cho 6 loại. Chưa sửa — nâng `MAX_STEPS` làm xấu thời gian xấu nhất
+(8 lượt đã là 66 s), mà bản vá trên có thể làm model hành động sớm hơn thay vì liệt kê. Đo lại trước.
 
 ---
 
