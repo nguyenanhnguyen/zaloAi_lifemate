@@ -109,6 +109,21 @@ class LLMAgent:
                  prompt_token_budget: int = 1800, adapter: str | None = None) -> None:
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        from transformers.integrations import sdpa_attention
+
+        # transformers enables `enable_gqa=True` whenever attention_mask is None -- our exact case,
+        # batch of one with no padding -- believing it AVOIDS the math kernel. Measured on torch
+        # 2.11 the opposite holds: enable_gqa IS the math-kernel path, so it materialises the whole
+        # 32 x N x N x 2 byte attention matrix. Repeating the KV heads costs ~150 MB of extra K/V
+        # but lets an efficient backend run, which is O(N) instead of O(N^2):
+        #
+        #   bare SDPA, N=3072:   enable_gqa 2844 MiB   vs   repeated KV 24 MiB   (118x)
+        #   real Qwen3, N=4096:  unpatched 5638 MiB    vs   patched 1792 MiB
+        #
+        # This is what killed the first Kaggle run: a ~9160-token prompt tried to allocate
+        # 5.00 GiB == 32 x 9160^2 x 2 on a 14.56 GiB card. It is also why this laptop looked as if
+        # it had a hard VRAM ceiling at larger contexts -- re-measure before believing that again.
+        sdpa_attention.use_gqa_in_sdpa = lambda *args, **kwargs: False
 
         if precision not in {"bf16", "4bit"}:
             raise ValueError("precision must be 'bf16' or '4bit'")
