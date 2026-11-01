@@ -1,426 +1,0 @@
-2026-10-31 16:31:03,335 WARNING Local quality run: 3600 s/sample. Competition limit is 30 s on A30.
-2026-10-31 16:31:03,547 INFO Will process 100 audio samples; already completed 0
-2026-10-31 16:31:03,549 WARNING LLM precision=4bit (not the A30's bf16): local speed configuration, scores may differ slightly from a bf16 submission. Pass --llm-precision bf16 to match.
-2026-10-31 16:31:03,549 WARNING ASR runs as a separate phase before the LLM, so per-sample seconds below cover the LLM only; asr_seconds comes from the ASR phase. The competition's 30 s/sample budget applies to both together -- use --asr-phase inline to measure a sample end to end as the organisers do.
-2026-10-31 16:31:03,900 INFO ASR phase: 100 of 100 samples still to transcribe on cuda
-2026-10-31 16:31:09,518 INFO Loading ASR D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--vinai--PhoWhisper-large\snapshots\b9136a44b5f2ca664bd0b8f74baecf1715f6eeeb on cuda (dtype=torch.float16)
-Loading weights:   0%|          | 0/1260 [00:00<?, ?it/s]Loading weights:   7%|▋         | 87/1260 [00:00<00:01, 764.65it/s]Loading weights:  19%|█▉        | 242/1260 [00:00<00:00, 1188.19it/s]Loading weights:  33%|███▎      | 419/1260 [00:00<00:00, 1424.30it/s]Loading weights:  45%|████▍     | 563/1260 [00:00<00:00, 1336.48it/s]Loading weights:  55%|█████▌    | 699/1260 [00:00<00:00, 982.32it/s] Loading weights:  64%|██████▍   | 809/1260 [00:00<00:00, 833.49it/s]Loading weights:  72%|███████▏  | 903/1260 [00:01<00:00, 694.50it/s]Loading weights:  78%|███████▊  | 981/1260 [00:01<00:00, 650.07it/s]Loading weights:  83%|████████▎ | 1052/1260 [00:01<00:00, 606.57it/s]Loading weights:  89%|████████▊ | 1116/1260 [00:01<00:00, 584.12it/s]Loading weights:  93%|█████████▎| 1177/1260 [00:01<00:00, 574.84it/s]Loading weights:  98%|█████████▊| 1236/1260 [00:01<00:00, 556.47it/s]Loading weights: 100%|██████████| 1260/1260 [00:01<00:00, 731.05it/s]
-D:\z_DaiHoc\a_zaloAI\env\Lib\site-packages\torch\nn\modules\module.py:1367: UserWarning: expandable_segments not supported on this platform (Triggered internally at C:\actions-runner\_work\pytorch\pytorch\pytorch\c10/cuda/CUDAAllocatorConfig.h:39.)
-  return t.to(
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] A custom logits processor of type <class 'transformers.generation.logits_process.SuppressTokensLogitsProcessor'> has been passed to `.generate()`, but it was also created in `.generate()`, given its parameterization. The custom <class 'transformers.generation.logits_process.SuppressTokensLogitsProcessor'> will take precedence. Please check the docstring of <class 'transformers.generation.logits_process.SuppressTokensLogitsProcessor'> to see related `.generate()` flags.
-[transformers] A custom logits processor of type <class 'transformers.generation.logits_process.SuppressTokensAtBeginLogitsProcessor'> has been passed to `.generate()`, but it was also created in `.generate()`, given its parameterization. The custom <class 'transformers.generation.logits_process.SuppressTokensAtBeginLogitsProcessor'> will take precedence. Please check the docstring of <class 'transformers.generation.logits_process.SuppressTokensAtBeginLogitsProcessor'> to see related `.generate()` flags.
-[transformers] Ignoring clean_up_tokenization_spaces=True for BPE tokenizer WhisperTokenizer. The clean_up_tokenization post-processing step is designed for WordPiece tokenizers and is destructive for BPE (it strips spaces before punctuation). Set clean_up_tokenization_spaces=False to suppress this warning, or set clean_up_tokenization_spaces_for_bpe_even_though_it_will_corrupt_output=True to force cleanup anyway.
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-2026-10-31 16:32:09,883 INFO ASR phase 25/100 (54.1 s elapsed, 2.2 s/sample, ~3 min left)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-2026-10-31 16:32:58,811 INFO ASR phase 50/100 (103.0 s elapsed, 2.1 s/sample, ~2 min left)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-2026-10-31 16:48:05,085 INFO ASR phase 75/100 (1009.3 s elapsed, 13.5 s/sample, ~6 min left)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-[transformers] Both `max_new_tokens` (=256) and `max_length`(=448) seem to have been set. `max_new_tokens` will take precedence. Please refer to the documentation for more information. (https://huggingface.co/docs/transformers/main/en/main_classes/text_generation)
-2026-10-31 17:01:28,128 INFO ASR phase 100/100 (1812.3 s elapsed, 18.1 s/sample, ~0 min left)
-2026-10-31 17:01:28,496 INFO Loading LLM D:\z_DaiHoc\a_zaloAI\models\hf-cache\hub\models--Qwen--Qwen3-4B-Instruct-2507\snapshots\cdbee75f17c01a7cc42f958dc650907174af0554 on cuda (precision=4bit)
-Loading weights:   0%|          | 0/398 [00:00<?, ?it/s]Loading weights:   0%|          | 1/398 [00:00<05:34,  1.19it/s]Loading weights:   1%|          | 3/398 [00:00<01:45,  3.73it/s]Loading weights:   2%|▏         | 9/398 [00:01<00:30, 12.59it/s]Loading weights:   4%|▍         | 15/398 [00:01<00:18, 20.17it/s]Loading weights:   6%|▋         | 25/398 [00:01<00:11, 33.72it/s]Loading weights:   8%|▊         | 31/398 [00:01<00:09, 39.20it/s]Loading weights:  10%|▉         | 38/398 [00:01<00:08, 42.96it/s]Loading weights:  12%|█▏        | 48/398 [00:01<00:06, 53.46it/s]Loading weights:  15%|█▍        | 58/398 [00:01<00:05, 58.10it/s]Loading weights:  16%|█▋        | 65/398 [00:01<00:05, 57.94it/s]Loading weights:  18%|█▊        | 72/398 [00:02<00:06, 51.61it/s]Loading weights:  20%|██        | 80/398 [00:02<00:05, 57.70it/s]Loading weights:  22%|██▏       | 87/398 [00:02<00:05, 57.26it/s]Loading weights:  24%|██▎       | 94/398 [00:02<00:05, 52.96it/s]Loading weights:  26%|██▌       | 102/398 [00:02<00:05, 59.09it/s]Loading weights:  27%|██▋       | 109/398 [00:02<00:04, 61.22it/s]Loading weights:  29%|██▉       | 116/398 [00:02<00:05, 52.76it/s]Loading weights:  31%|███▏      | 125/398 [00:03<00:04, 56.06it/s]Loading weights:  33%|███▎      | 132/398 [00:03<00:04, 57.21it/s]Loading weights:  35%|███▍      | 138/398 [00:03<00:05, 47.49it/s]Loading weights:  37%|███▋      | 146/398 [00:03<00:04, 51.61it/s]Loading weights:  38%|███▊      | 152/398 [00:03<00:05, 46.25it/s]Loading weights:  40%|███▉      | 158/398 [00:03<00:05, 42.49it/s]Loading weights:  41%|████      | 163/398 [00:03<00:05, 43.01it/s]Loading weights:  42%|████▏     | 168/398 [00:04<00:05, 42.96it/s]Loading weights:  43%|████▎     | 173/398 [00:04<00:05, 38.10it/s]Loading weights:  45%|████▍     | 179/398 [00:04<00:05, 37.92it/s]Loading weights:  46%|████▌     | 183/398 [00:04<00:06, 34.99it/s]Loading weights:  48%|████▊     | 190/398 [00:04<00:05, 38.82it/s]Loading weights:  49%|████▊     | 194/398 [00:04<00:05, 36.00it/s]Loading weights:  51%|█████     | 201/398 [00:04<00:04, 40.39it/s]Loading weights:  52%|█████▏    | 206/398 [00:05<00:05, 37.36it/s]Loading weights:  53%|█████▎    | 212/398 [00:05<00:04, 39.24it/s]Loading weights:  54%|█████▍    | 216/398 [00:05<00:05, 36.37it/s]Loading weights:  56%|█████▌    | 223/398 [00:05<00:04, 39.56it/s]Loading weights:  57%|█████▋    | 227/398 [00:05<00:04, 37.16it/s]Loading weights:  59%|█████▉    | 234/398 [00:05<00:03, 41.14it/s]Loading weights:  60%|██████    | 239/398 [00:05<00:04, 39.67it/s]Loading weights:  62%|██████▏   | 245/398 [00:06<00:03, 40.17it/s]Loading weights:  63%|██████▎   | 250/398 [00:06<00:04, 34.52it/s]Loading weights:  64%|██████▍   | 256/398 [00:06<00:04, 32.55it/s]Loading weights:  65%|██████▌   | 260/398 [00:06<00:04, 27.68it/s]Loading weights:  66%|██████▋   | 264/398 [00:06<00:04, 29.88it/s]Loading weights:  67%|██████▋   | 268/398 [00:07<00:05, 25.91it/s]Loading weights:  68%|██████▊   | 272/398 [00:07<00:04, 28.59it/s]Loading weights:  69%|██████▉   | 276/398 [00:07<00:03, 30.56it/s]Loading weights:  70%|███████   | 280/398 [00:07<00:05, 23.37it/s]Loading weights:  72%|███████▏  | 287/398 [00:07<00:03, 32.03it/s]Loading weights:  73%|███████▎  | 291/398 [00:07<00:04, 24.92it/s]Loading weights:  75%|███████▌  | 300/398 [00:08<00:02, 32.79it/s]Loading weights:  76%|███████▋  | 304/398 [00:08<00:02, 31.48it/s]Loading weights:  78%|███████▊  | 311/398 [00:08<00:02, 34.22it/s]Loading weights:  79%|███████▉  | 315/398 [00:08<00:02, 31.10it/s]Loading weights:  81%|████████  | 322/398 [00:08<00:02, 34.39it/s]Loading weights:  82%|████████▏ | 326/398 [00:08<00:02, 29.26it/s]Loading weights:  83%|████████▎ | 330/398 [00:09<00:02, 31.16it/s]Loading weights:  84%|████████▍ | 334/398 [00:09<00:02, 29.09it/s]Loading weights:  85%|████████▌ | 339/398 [00:09<00:01, 31.89it/s]Loading weights:  86%|████████▋ | 344/398 [00:09<00:01, 35.12it/s]Loading weights:  87%|████████▋ | 348/398 [00:09<00:01, 33.93it/s]Loading weights:  89%|████████▉ | 355/398 [00:09<00:01, 37.19it/s]Loading weights:  90%|█████████ | 359/398 [00:09<00:01, 34.83it/s]Loading weights:  92%|█████████▏| 366/398 [00:09<00:00, 39.09it/s]Loading weights:  93%|█████████▎| 370/398 [00:10<00:00, 36.33it/s]Loading weights:  95%|█████████▍| 377/398 [00:10<00:00, 41.91it/s]Loading weights:  96%|█████████▌| 382/398 [00:10<00:00, 40.81it/s]Loading weights:  97%|█████████▋| 388/398 [00:10<00:00, 42.82it/s]Loading weights:  99%|█████████▊| 393/398 [00:10<00:00, 40.05it/s]Loading weights: 100%|██████████| 398/398 [00:10<00:00, 37.10it/s]
-2026-10-31 17:01:43,148 INFO train_0001 transcript: nếu may mưa thì dời chạy bỏ muộn một tiếng nhắn sức dũng giờ mới không mưa thì thôi.
-2026-10-31 17:01:43,225 WARNING Tool prompt routed to 10/50 tools from apps ['gold_price', 'sms', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:01:51,997 INFO train_0001 step 1: smart_home.get_status {'type': 'climate'}
-2026-10-31 17:01:52,043 WARNING Tool prompt routed to 4/50 tools from apps ['gold_price', 'sms'] (budget 1800 tokens)
-2026-10-31 17:01:57,353 WARNING train_0001 rejected before execution: weather.forecast Unknown tool or malformed arguments. Use the provided schema.
-2026-10-31 17:01:57,391 WARNING Tool prompt routed to 4/50 tools from apps ['gold_price', 'sms'] (budget 1800 tokens)
-2026-10-31 17:02:02,899 INFO train_0001 step 3: weather.get_current {'lat': 16.0544, 'lng': 108.2022}
-2026-10-31 17:02:02,959 WARNING Tool prompt routed to 4/50 tools from apps ['gold_price', 'sms'] (budget 1800 tokens)
-2026-10-31 17:02:11,879 INFO train_0001 step 4: sms.send {'phone_number': '0909 090 090', 'content': 'Chào bạn, do trời mưa rào, mình đã dời chạy lên một tiếng. Cảm ơn bạn đã tin tưởng!'}
-2026-10-31 17:02:11,948 WARNING Tool prompt routed to 4/50 tools from apps ['gold_price', 'sms'] (budget 1800 tokens)
-2026-10-31 17:02:12,987 INFO train_0001 final: DONE
-2026-10-31 17:02:12,987 INFO train_0001 stopped: done (5 LLM turns)
-2026-10-31 17:02:13,004 INFO Processed 1/100: train_0001 (32.3 s; average 32.3 s)
-2026-10-31 17:02:13,029 INFO train_0002 transcript: nếu may mưa thì huỷ lịch đá bón à mà thôi cứ để lịch đó chỉ cần xem giúp may có mưa không.
-2026-10-31 17:02:13,069 WARNING Tool prompt routed to 10/44 tools from apps ['tv', 'banking'] (budget 1800 tokens)
-2026-10-31 17:02:21,210 INFO train_0002 step 1: tv.guide {'date': '2026-11-20'}
-2026-10-31 17:02:21,255 WARNING Tool prompt routed to 10/44 tools from apps ['tv', 'banking'] (budget 1800 tokens)
-2026-10-31 17:02:26,822 INFO train_0002 step 2: sys.ask_missing_info {'tool_name': 'tv.guide', 'params': ['channel', 'date']}
-2026-10-31 17:02:26,822 INFO train_0002 stopped: asked_missing (2 LLM turns)
-2026-10-31 17:02:26,832 INFO Processed 2/100: train_0002 (15.4 s; average 23.9 s)
-2026-10-31 17:02:26,843 INFO train_0003 transcript: này làm tiếp mình năm mươi ngàn tiền điện thoại cho bác ba với chuyển ví cho cô mai số tiền điện thoại này nhé.
-2026-10-31 17:02:26,884 WARNING Tool prompt routed to 12/52 tools from apps ['contacts', 'ewallet', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:03:08,672 INFO train_0003 step 1: contacts.search {'query': 'bác ba'}
-2026-10-31 17:03:08,720 WARNING Tool prompt routed to 10/52 tools from apps ['contacts', 'ewallet', 'phone'] (budget 1800 tokens)
-2026-10-31 17:03:13,305 INFO train_0003 step 2: contacts.search {'query': 'cô mai'}
-2026-10-31 17:03:13,352 WARNING Tool prompt routed to 10/52 tools from apps ['contacts', 'ewallet', 'phone'] (budget 1800 tokens)
-2026-10-31 17:03:18,792 INFO train_0003 step 3: sys.ask_missing_info {'tool_name': 'contacts.search', 'params': ['name', 'relation']}
-2026-10-31 17:03:18,792 INFO train_0003 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:03:18,802 INFO Processed 3/100: train_0003 (54.0 s; average 33.9 s)
-2026-10-31 17:03:18,828 INFO train_0004 transcript: trợ lý ơi giảm độ sáng đèn phòng ngủ nhỏ xuống còn một nửa nhé.
-2026-10-31 17:03:18,862 WARNING Tool prompt routed to 5/37 tools from apps ['ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:03:22,200 INFO train_0004 final: DONE
-2026-10-31 17:03:22,200 INFO train_0004 stopped: done (1 LLM turns)
-2026-10-31 17:03:22,209 INFO Processed 4/100: train_0004 (4.8 s; average 26.6 s)
-2026-10-31 17:03:22,243 INFO train_0005 transcript: trợ lý ơi đặt giúp tôi xe bốn chỗ từ công ty đi học của quân chiều nay nhé đặt ngay bây giờ luôn.
-2026-10-31 17:03:22,286 WARNING Tool prompt routed to 11/43 tools from apps ['phone', 'ride_hailing', 'ewallet'] (budget 1800 tokens)
-2026-10-31 17:04:12,764 INFO train_0005 step 1: ride_hailing.get_quotes {'pickup': 'Khu Công nghệ cao, TP. Thủ Đức, TP.HCM', 'dropoff': 'Trường Đại học Khoa học Tự nhiên, TP.HCM', 'vehicle': 'car4'}
-2026-10-31 17:04:12,827 WARNING Tool prompt routed to 7/43 tools from apps ['phone', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:04:25,346 INFO train_0005 step 2: ride_hailing.book {'pickup': 'Khu Công nghệ cao, TP. Thủ Đức, TP.HCM', 'dropoff': 'Trường Đại học Khoa học Tự nhiên, TP.HCM', 'vehicle': 'car4', 'payment': 'ewallet'}
-2026-10-31 17:04:25,445 WARNING Tool prompt routed to 7/43 tools from apps ['phone', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:04:36,105 INFO train_0005 final: Đã đặt thành công chuyến xe bốn chỗ từ Khu Công nghệ cao đến Trường Đại học Khoa học Tự nhiên. Chi phí 85.000 VNĐ, thời gian dự kiến 7 phút. Chuyến xe đã được t
-2026-10-31 17:04:36,106 INFO train_0005 stopped: done (3 LLM turns)
-2026-10-31 17:04:36,120 INFO Processed 5/100: train_0005 (75.6 s; average 36.4 s)
-2026-10-31 17:04:36,150 INFO train_0006 transcript: điều giá thu mua vào vàng ét chi chi hôm nay dưới một trăm hai mươi ba triệu thì chín giờ sáng mai nhắc tôi đi mua nhé.
-2026-10-31 17:04:36,208 WARNING Tool prompt routed to 10/49 tools from apps ['smart_home', 'gold_price', 'phone'] (budget 1800 tokens)
-2026-10-31 17:04:44,193 INFO train_0006 step 1: gold_price.get_price {'type': 'sjc'}
-2026-10-31 17:04:44,245 WARNING Tool prompt routed to 10/49 tools from apps ['smart_home', 'gold_price', 'phone'] (budget 1800 tokens)
-2026-10-31 17:04:48,169 INFO train_0006 step 2: smart_home.get_status {'type': 'plug'}
-2026-10-31 17:04:48,214 WARNING Tool prompt routed to 10/49 tools from apps ['smart_home', 'gold_price', 'phone'] (budget 1800 tokens)
-2026-10-31 17:04:52,119 INFO train_0006 step 3: sys.ask_missing_info {'tool_name': 'phone.call', 'params': ['contact_id']}
-2026-10-31 17:04:52,119 INFO train_0006 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:04:52,128 INFO Processed 6/100: train_0006 (18.1 s; average 33.4 s)
-2026-10-31 17:04:52,172 INFO train_0007 transcript: đặt báo thức năm giờ nhé à không năm rưỡi sáng mai đó.
-2026-10-31 17:04:52,196 WARNING Tool prompt routed to 10/21 tools from apps ['alarm', 'gold_price', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:04:58,411 INFO train_0007 step 1: alarm.list {}
-2026-10-31 17:04:58,440 WARNING Tool prompt routed to 10/21 tools from apps ['alarm', 'gold_price', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:05:04,570 INFO train_0007 step 2: alarm.create {'time': '06:00', 'label': 'năm giờ sáng', 'repeat': 'daily'}
-2026-10-31 17:05:04,602 WARNING Tool prompt routed to 10/21 tools from apps ['alarm', 'gold_price', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:05:05,630 INFO train_0007 final: DONE
-2026-10-31 17:05:05,630 INFO train_0007 stopped: done (3 LLM turns)
-2026-10-31 17:05:05,638 INFO Processed 7/100: train_0007 (14.6 s; average 30.7 s)
-2026-10-31 17:05:05,684 INFO train_0008 transcript: cái còn lại nếu may mưa thì dời muộn nửa tiếng không mưa rửa khuya.
-2026-10-31 17:05:05,721 WARNING Tool prompt routed to 5/38 tools from apps ['ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:05:14,878 INFO train_0008 step 1: sys.ask_missing_info {'tool_name': 'alarm.list', 'params': ['time', 'label', 'repeat', 'enabled']}
-2026-10-31 17:05:14,878 INFO train_0008 stopped: asked_missing (1 LLM turns)
-2026-10-31 17:05:14,888 INFO Processed 8/100: train_0008 (13.4 s; average 28.5 s)
-2026-10-31 17:05:14,907 INFO train_0009 transcript: đặt giùm em lên năm mươi ngàn cho số không chín năm không năm ba sáu không ba sáu bảy nha.
-2026-10-31 17:05:14,930 WARNING Tool prompt routed to 9/26 tools from apps ['tv', 'calendar'] (budget 1800 tokens)
-2026-10-31 17:05:24,798 INFO train_0009 step 1: sys.ask_missing_info {'tool_name': 'calendar.create_event', 'params': ['title', 'start', 'end', 'location', 'attendees']}
-2026-10-31 17:05:24,798 INFO train_0009 stopped: asked_missing (1 LLM turns)
-2026-10-31 17:05:24,807 INFO Processed 9/100: train_0009 (12.1 s; average 26.7 s)
-2026-10-31 17:05:24,840 INFO train_0011 transcript: nếu ví đủ thì trả điện và nhắn bố là đã đóng còn không thì trả ngân hàng và nhắc tôi tám giờ tối nay nạp tiền vào ví nha.
-2026-10-31 17:05:24,888 WARNING Tool prompt routed to 7/59 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:05:31,539 INFO train_0011 step 1: smart_home.get_status {'type': 'plug'}
-2026-10-31 17:05:31,589 WARNING Tool prompt routed to 7/59 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:05:36,950 INFO train_0011 step 2: sys.ask_missing_info {'tool_name': 'smart_home.get_status', 'params': ['room', 'floor']}
-2026-10-31 17:05:36,950 INFO train_0011 stopped: asked_missing (2 LLM turns)
-2026-10-31 17:05:36,960 INFO Processed 10/100: train_0011 (15.2 s; average 25.5 s)
-2026-10-31 17:05:36,984 INFO train_0012 transcript: bạn ơ chỉnh cho chủ nhà phạm hùng hay triệu tém về nạp giúp sếp dũng hay chăm nghề nhé.
-2026-10-31 17:05:37,046 WARNING Tool prompt routed to 11/58 tools from apps ['music', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:06:17,979 INFO train_0012 step 1: sys.ask_missing_info {'tool_name': 'smart_home.get_status', 'params': ['room', 'floor', 'type']}
-2026-10-31 17:06:17,979 INFO train_0012 stopped: asked_missing (1 LLM turns)
-2026-10-31 17:06:17,990 INFO Processed 11/100: train_0012 (43.5 s; average 27.2 s)
-2026-10-31 17:06:18,026 INFO train_0013 transcript: nếu mai mưa thì giờ đá bóng sáng mai muộn mặt phía nhắn sms cho lan báo giờ mới không mưa thì thôi.
-2026-10-31 17:06:18,067 WARNING Tool prompt routed to 10/41 tools from apps ['gold_price', 'sms', 'ride_hailing', 'phone'] (budget 1800 tokens)
-2026-10-31 17:06:25,810 INFO train_0013 step 1: phone.recent_calls {'missed_only': False}
-2026-10-31 17:06:25,844 WARNING Tool prompt routed to 10/41 tools from apps ['gold_price', 'sms', 'ride_hailing', 'phone'] (budget 1800 tokens)
-2026-10-31 17:06:30,436 INFO train_0013 step 2: sms.read_recent {'contact_id': 'lan', 'limit': 1}
-2026-10-31 17:06:30,470 WARNING Tool prompt routed to 10/41 tools from apps ['gold_price', 'sms', 'ride_hailing', 'phone'] (budget 1800 tokens)
-2026-10-31 17:06:36,662 INFO train_0013 step 3: sys.ask_missing_info {'tool_name': 'ride_hailing.get_quotes', 'params': ['pickup', 'dropoff']}
-2026-10-31 17:06:36,662 INFO train_0013 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:06:36,670 INFO Processed 12/100: train_0013 (21.1 s; average 26.7 s)
-2026-10-31 17:06:36,690 INFO train_0014 transcript: tết hết đèn thằng hai giùm chị phòng nào đang bật máy lạnh thì để quên nha.
-2026-10-31 17:06:36,721 WARNING Tool prompt routed to 10/36 tools from apps ['smart_home', 'sms', 'fuel_price'] (budget 1800 tokens)
-2026-10-31 17:07:17,059 INFO train_0014 step 1: smart_home.get_status {'type': 'climate'}
-2026-10-31 17:07:17,092 WARNING Tool prompt routed to 9/36 tools from apps ['smart_home', 'sms'] (budget 1800 tokens)
-2026-10-31 17:07:21,525 INFO train_0014 step 2: smart_home.get_status {'type': 'light'}
-2026-10-31 17:07:21,571 WARNING Tool prompt routed to 7/36 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:07:39,907 INFO train_0014 final: Tết hết đèn, phòng nào đang bật máy lạnh thì để quên nha.  
-
-- Máy lạnh đang bật: **phòng ngủ (ID: ac_bedroom)**  
-- Đèn đang bật: **phòng ngủ (ID: light_bedroo
-2026-10-31 17:07:39,907 INFO train_0014 stopped: done (3 LLM turns)
-2026-10-31 17:07:39,916 INFO Processed 13/100: train_0014 (65.2 s; average 29.6 s)
-2026-10-31 17:07:39,958 INFO train_0015 transcript: truyền thông mạng sang này cho chú phạm hồng nhã nữ giải trợ khanh toán hóm đỗ sẽ lấy thừ tiết kiệm dùm tổ éo.
-2026-10-31 17:07:39,998 WARNING Tool prompt routed to 6/52 tools from apps ['banking'] (budget 1800 tokens)
-2026-10-31 17:07:47,799 INFO train_0015 step 1: sys.ask_missing_info {'tool_name': 'banking.list_beneficiaries', 'params': ['beneficiary_id', 'name']}
-2026-10-31 17:07:47,800 INFO train_0015 stopped: asked_missing (1 LLM turns)
-2026-10-31 17:07:47,809 INFO Processed 14/100: train_0015 (11.2 s; average 28.3 s)
-2026-10-31 17:07:47,834 INFO train_0016 transcript: ờ nếu mà mưa thì giờ lịch đá bóng xong mai mốt hai tiếng mới nhắn a trô mét cho mẹ là báo giờ mới còn không mưa thì thôi.
-2026-10-31 17:07:47,877 WARNING Tool prompt routed to 9/49 tools from apps ['ride_hailing', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:07:55,069 INFO train_0016 step 1: phone.recent_calls {'missed_only': False}
-2026-10-31 17:07:55,123 WARNING Tool prompt routed to 9/49 tools from apps ['ride_hailing', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:07:59,867 INFO train_0016 step 2: sms.read_recent {'contact_id': 'contact_mother', 'limit': 1}
-2026-10-31 17:07:59,909 WARNING Tool prompt routed to 9/49 tools from apps ['ride_hailing', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:08:09,673 INFO train_0016 step 3: ride_hailing.get_quotes {'pickup': '12 Nguyễn Huệ, Quận 1, TP.HCM', 'dropoff': 'Khu Công nghệ cao, TP. Thủ Đức, TP.HCM', 'vehicle': 'car4'}
-2026-10-31 17:08:09,744 WARNING Tool prompt routed to 9/49 tools from apps ['ride_hailing', 'phone', 'sms'] (budget 1800 tokens)
-2026-10-31 17:08:15,646 INFO train_0016 step 4: sys.ask_missing_info {'tool_name': 'ride_hailing.book', 'params': ['schedule_time']}
-2026-10-31 17:08:15,646 INFO train_0016 stopped: asked_missing (4 LLM turns)
-2026-10-31 17:08:15,654 INFO Processed 15/100: train_0016 (30.8 s; average 28.5 s)
-2026-10-31 17:08:15,692 INFO train_0017 transcript: ơi chuyển sang kênh aston park chừng em nha.
-2026-10-31 17:08:15,709 WARNING Tool prompt routed to 13/17 tools from apps ['tv', 'ride_hailing', 'medication'] (budget 1800 tokens)
-2026-10-31 17:09:00,284 INFO train_0017 step 1: tv.tune {'channel': 'Aston Park'}
-2026-10-31 17:09:00,306 WARNING Tool prompt routed to 9/17 tools from apps ['tv', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:09:07,068 INFO train_0017 step 2: tv.guide {'channel': 'Aston Park', 'date': '2026-11-12'}
-2026-10-31 17:09:07,101 WARNING Tool prompt routed to 9/17 tools from apps ['tv', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:09:12,641 INFO train_0017 step 3: sys.ask_missing_info {'tool_name': 'tv.tune', 'params': ['channel']}
-2026-10-31 17:09:12,641 INFO train_0017 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:09:12,651 INFO Processed 16/100: train_0017 (58.2 s; average 30.3 s)
-2026-10-31 17:09:12,669 INFO train_0018 transcript: gọi giùm tôi bố nha.
-2026-10-31 17:09:12,706 WARNING Tool prompt routed to 12/24 tools from apps ['phone', 'medication', 'chat_ott'] (budget 1800 tokens)
-2026-10-31 17:09:20,019 INFO train_0018 step 1: phone.recent_calls {}
-2026-10-31 17:09:20,062 WARNING Tool prompt routed to 12/24 tools from apps ['phone', 'medication', 'chat_ott'] (budget 1800 tokens)
-2026-10-31 17:09:24,333 INFO train_0018 step 2: phone.call {'contact_id': 'contact_001'}
-2026-10-31 17:09:24,363 WARNING Tool prompt routed to 12/24 tools from apps ['phone', 'medication', 'chat_ott'] (budget 1800 tokens)
-2026-10-31 17:09:29,918 INFO train_0018 final: Đã gọi cho bố của chị Hoa. Cuộc gọi đang được thực hiện. Nếu cần thêm hành động, vui lòng chỉ định.
-2026-10-31 17:09:29,918 INFO train_0018 stopped: done (3 LLM turns)
-2026-10-31 17:09:29,930 INFO Processed 17/100: train_0018 (18.4 s; average 29.6 s)
-2026-10-31 17:09:29,968 INFO train_0019 transcript: giờ tôi cần đặt phòng khách sạn ở đà lạt với anh.
-2026-10-31 17:09:29,988 WARNING Tool prompt routed to 11/13 tools from apps ['smart_home', 'alarm'] (budget 1800 tokens)
-2026-10-31 17:10:11,654 INFO train_0019 final: Không có công cụ nào phù hợp để đặt phòng khách sạn tại Đà Lạt. Yêu cầu này nằm ngoài phạm vi chức năng hiện tại của LifeMate.
-
-DONE
-2026-10-31 17:10:11,654 INFO train_0019 stopped: done (1 LLM turns)
-2026-10-31 17:10:11,665 INFO Processed 18/100: train_0019 (43.3 s; average 30.4 s)
-2026-10-31 17:10:11,688 INFO train_0020 transcript: tắt hết đèn tận hai giúp em nhé cờ phòng nào đang bật điều hoà thì cứ để nguyên.
-2026-10-31 17:10:11,733 WARNING Tool prompt routed to 9/46 tools from apps ['smart_home', 'phone'] (budget 1800 tokens)
-2026-10-31 17:10:19,242 INFO train_0020 step 1: smart_home.get_status {'type': 'light'}
-2026-10-31 17:10:19,292 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:10:23,949 INFO train_0020 step 2: smart_home.get_status {'type': 'climate'}
-2026-10-31 17:10:24,008 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:10:29,956 INFO train_0020 step 3: smart_home.light_set {'device_id': 'light_living', 'power': 'off'}
-2026-10-31 17:10:30,005 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:10:35,917 INFO train_0020 step 4: smart_home.light_set {'device_id': 'light_bedroom', 'power': 'off'}
-2026-10-31 17:10:35,970 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:10:42,522 INFO train_0020 final: Đã tắt hết đèn tại hai tầng. Điều hoà ở phòng ngủ vẫn được giữ nguyên như yêu cầu. Tác vụ đã hoàn tất.  
-DONE
-2026-10-31 17:10:42,523 INFO train_0020 stopped: done (5 LLM turns)
-2026-10-31 17:10:42,534 INFO Processed 19/100: train_0020 (33.0 s; average 30.5 s)
-2026-10-31 17:10:42,578 INFO train_0025 transcript: nếu mai mưa thì khỉ giật đá bóng sáng mai khế lợi sẽ đặng vinh nhé còn không mưa thì thôi à.
-2026-10-31 17:10:42,640 WARNING Tool prompt routed to 8/59 tools from apps ['gold_price', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:10:50,429 INFO train_0025 step 1: smart_home.get_status {'floor': 1, 'type': 'light'}
-2026-10-31 17:10:50,496 WARNING Tool prompt routed to 8/59 tools from apps ['gold_price', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:10:55,491 INFO train_0025 step 2: smart_home.get_status {'floor': 1, 'type': 'climate'}
-2026-10-31 17:10:55,554 WARNING Tool prompt routed to 8/59 tools from apps ['gold_price', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:11:00,556 INFO train_0025 step 3: smart_home.get_status {'floor': 1, 'type': 'fan'}
-2026-10-31 17:11:00,615 WARNING Tool prompt routed to 2/59 tools from apps ['gold_price'] (budget 1800 tokens)
-2026-10-31 17:11:02,569 INFO train_0025 final: DONE
-2026-10-31 17:11:02,570 INFO train_0025 stopped: done (4 LLM turns)
-2026-10-31 17:11:02,580 INFO Processed 20/100: train_0025 (22.6 s; average 30.1 s)
-2026-10-31 17:11:02,604 INFO train_0026 transcript: chợ đi hơi dị lịch cà phê với gia đình bà mẹ họ một tiếng giúp mình hiểu.
-2026-10-31 17:11:02,639 WARNING Tool prompt routed to 7/37 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:11:09,462 INFO train_0026 step 1: smart_home.get_status {'room': 'living_room'}
-2026-10-31 17:11:09,503 WARNING Tool prompt routed to 7/37 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:11:13,118 INFO train_0026 step 2: smart_home.get_status {'room': 'kitchen'}
-2026-10-31 17:11:13,151 WARNING Tool prompt routed to 7/37 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:11:16,961 INFO train_0026 step 3: smart_home.get_status {'room': 'dining_room'}
-2026-10-31 17:11:16,995 WARNING Tool prompt routed to 7/37 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:11:17,981 INFO train_0026 final: DONE
-2026-10-31 17:11:17,981 INFO train_0026 stopped: done (4 LLM turns)
-2026-10-31 17:11:17,991 INFO Processed 21/100: train_0026 (17.4 s; average 29.5 s)
-2026-10-31 17:11:18,040 INFO train_0027 transcript: nhắc chừng chị ra sân bay lúc tám giờ kém về làm thoải mái nhé.
-2026-10-31 17:11:18,077 WARNING Tool prompt routed to 13/37 tools from apps ['alarm', 'gold_price', 'sms', 'chat_ott'] (budget 1800 tokens)
-2026-10-31 17:12:01,354 INFO train_0027 step 1: alarm.create {'time': '08:00', 'label': 'ra sân bay', 'repeat': 'once'}
-2026-10-31 17:12:01,388 WARNING Tool prompt routed to 8/37 tools from apps ['alarm', 'gold_price', 'sms'] (budget 1800 tokens)
-2026-10-31 17:12:05,347 INFO train_0027 final: Đã đặt báo thức nhắc chị ra sân bay lúc 08:00.
-2026-10-31 17:12:05,347 INFO train_0027 stopped: done (2 LLM turns)
-2026-10-31 17:12:05,356 INFO Processed 22/100: train_0027 (49.1 s; average 30.4 s)
-2026-10-31 17:12:05,374 INFO train_0028 transcript: đặt báo giúp cho chị một tiếng trước lịch họp tim ngày mười chuyển nhé.
-2026-10-31 17:12:05,408 WARNING Tool prompt routed to 9/33 tools from apps ['sms', 'phone', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:12:12,671 INFO train_0028 step 1: phone.recent_calls {'missed_only': False}
-2026-10-31 17:12:12,713 WARNING Tool prompt routed to 9/33 tools from apps ['sms', 'phone', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:12:18,133 INFO train_0028 step 2: sms.read_recent {'contact_id': 'contact_1001', 'limit': 5}
-2026-10-31 17:12:18,167 WARNING Tool prompt routed to 9/33 tools from apps ['sms', 'phone', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:12:24,214 INFO train_0028 step 3: sys.ask_missing_info {'tool_name': 'ride_hailing.get_quotes', 'params': ['pickup', 'dropoff']}
-2026-10-31 17:12:24,214 INFO train_0028 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:12:24,226 INFO Processed 23/100: train_0028 (20.8 s; average 30.0 s)
-2026-10-31 17:12:24,266 INFO train_0029 transcript: nếu giá vàng sgc mua vào dưới một trăm hai bốn triệu thì nhắc mình kiếm giờ sáng mai đi mua nha.
-2026-10-31 17:12:24,312 WARNING Tool prompt routed to 8/41 tools from apps ['gold_price', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:12:31,571 INFO train_0029 step 1: gold_price.get_price {'type': 'sjc'}
-2026-10-31 17:12:31,620 WARNING Tool prompt routed to 8/41 tools from apps ['gold_price', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:12:43,301 INFO train_0029 final: nếu giá vàng SJC mua vào dưới 124 triệu thì nhắc mình kiếm giờ sáng mai đi mua nha.  
-Giá vàng SJC hiện tại là 125,6 triệu đồng/lượng (mua vào), cao hơn 124 tri
-2026-10-31 17:12:43,302 INFO train_0029 stopped: done (2 LLM turns)
-2026-10-31 17:12:43,312 INFO Processed 24/100: train_0029 (21.7 s; average 29.7 s)
-2026-10-31 17:12:43,334 INFO train_0030 transcript: ấy rình giúp tấu một điều hay cho chủ nhà phan hùng nghe.
-2026-10-31 17:12:43,379 WARNING Tool prompt routed to 12/38 tools from apps ['music', 'banking', 'phone'] (budget 1800 tokens)
-2026-10-31 17:13:27,887 INFO train_0030 step 1: music.list_tracks {}
-2026-10-31 17:13:27,932 WARNING Tool prompt routed to 5/38 tools from apps ['music'] (budget 1800 tokens)
-2026-10-31 17:13:34,699 INFO train_0030 step 2: music.add_to_playlist {'track_id': 'trk_01', 'playlist_id': 'pl_01'}
-2026-10-31 17:13:34,740 WARNING Tool prompt routed to 5/38 tools from apps ['music'] (budget 1800 tokens)
-2026-10-31 17:13:39,686 INFO train_0030 step 3: music.play {'track_id': 'trk_01', 'device': 'home'}
-2026-10-31 17:13:39,736 WARNING Tool prompt routed to 5/38 tools from apps ['music'] (budget 1800 tokens)
-2026-10-31 17:13:51,558 INFO train_0030 final: Đã chọn bài hát "Nơi này có anh" của Sơn Tùng M-TP để phát cho chủ nhà Phan Hùng. Bài hát đã được thêm vào playlist "Nhạc chill buổi tối" và đang được phát trên
-2026-10-31 17:13:51,558 INFO train_0030 stopped: done (4 LLM turns)
-2026-10-31 17:13:51,576 INFO Processed 25/100: train_0030 (69.8 s; average 31.3 s)
-2026-10-31 17:13:51,630 INFO train_0031 transcript: nhớ nhắc mình gọi lại cho khách lúc tắm rễ tối mai nhé.
-2026-10-31 17:13:51,701 WARNING Tool prompt routed to 11/37 tools from apps ['phone', 'reminders', 'alarm'] (budget 1800 tokens)
-2026-10-31 17:14:06,250 INFO train_0031 step 1: reminders.create {'content': 'gọi lại cho khách lúc tắm rễ', 'time': '2026-11-06T20:00:00+07:00', 'repeat': 'once'}
-2026-10-31 17:14:06,321 WARNING Tool prompt routed to 11/37 tools from apps ['phone', 'reminders', 'alarm'] (budget 1800 tokens)
-2026-10-31 17:14:07,699 INFO train_0031 final: DONE
-2026-10-31 17:14:07,699 INFO train_0031 stopped: done (2 LLM turns)
-2026-10-31 17:14:07,714 INFO Processed 26/100: train_0031 (17.7 s; average 30.7 s)
-2026-10-31 17:14:07,737 INFO train_0032 transcript: chuyển giùm tôi cho anh trần văn tuấn số tiền truyền hình tháng này nha.
-2026-10-31 17:14:07,802 WARNING Tool prompt routed to 10/49 tools from apps ['ewallet', 'bill_payment', 'sms'] (budget 1800 tokens)
-2026-10-31 17:14:15,893 INFO train_0032 step 1: bill_payment.list_bills {'type': 'tv'}
-2026-10-31 17:14:15,960 WARNING Tool prompt routed to 10/49 tools from apps ['ewallet', 'bill_payment', 'sms'] (budget 1800 tokens)
-2026-10-31 17:14:23,330 INFO train_0032 step 2: bill_payment.pay {'bill_id': 'bill_03', 'source': 'ewallet'}
-2026-10-31 17:14:23,423 WARNING Tool prompt routed to 10/49 tools from apps ['ewallet', 'bill_payment', 'sms'] (budget 1800 tokens)
-2026-10-31 17:14:28,131 INFO train_0032 final: Đã thanh toán hóa đơn truyền hình tháng này bằng ví điện tử.
-2026-10-31 17:14:28,131 INFO train_0032 stopped: done (3 LLM turns)
-2026-10-31 17:14:28,150 INFO Processed 27/100: train_0032 (22.6 s; average 30.4 s)
-2026-10-31 17:14:28,199 INFO train_0033 transcript: gặp rút triệt bảo thích chất lịch họng đêm mai hay kiểu nhãn.
-2026-10-31 17:14:28,283 WARNING Tool prompt routed to 12/36 tools from apps ['sms', 'banking', 'tv'] (budget 1800 tokens)
-2026-10-31 17:15:15,973 INFO train_0033 step 1: sys.ask_missing_info {'tool_name': 'sms.send', 'params': ['contact_id', 'phone_number']}
-2026-10-31 17:15:15,973 INFO train_0033 stopped: asked_missing (1 LLM turns)
-2026-10-31 17:15:15,995 INFO Processed 28/100: train_0033 (49.7 s; average 31.1 s)
-2026-10-31 17:15:16,017 INFO train_0034 transcript: à nhắn con salute cho bác ba là thối nay ăn cơm ở nhà nhé.
-2026-10-31 17:15:16,076 WARNING Tool prompt routed to 11/39 tools from apps ['sms', 'ride_hailing', 'alarm'] (budget 1800 tokens)
-2026-10-31 17:16:05,258 INFO train_0034 step 1: sms.send {'contact_id': '001', 'content': 'Con salute bác ba, hôm nay ăn cơm ở nhà nhé'}
-2026-10-31 17:16:05,327 WARNING Tool prompt routed to 7/39 tools from apps ['sms', 'ride_hailing'] (budget 1800 tokens)
-2026-10-31 17:16:08,008 INFO train_0034 final: DONE
-2026-10-31 17:16:08,008 INFO train_0034 stopped: done (2 LLM turns)
-2026-10-31 17:16:08,025 INFO Processed 29/100: train_0034 (53.6 s; average 31.9 s)
-2026-10-31 17:16:08,058 INFO train_0035 transcript: bà nữ tắp đèn phòng khách giúp tối nhẹ.
-2026-10-31 17:16:08,108 WARNING Tool prompt routed to 11/26 tools from apps ['reminders', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:16:53,602 INFO train_0035 step 1: smart_home.get_status {'room': 'living room'}
-2026-10-31 17:16:53,645 WARNING Tool prompt routed to 11/26 tools from apps ['reminders', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:16:59,177 INFO train_0035 step 2: smart_home.get_status {'room': 'living room', 'type': 'light'}
-2026-10-31 17:16:59,223 WARNING Tool prompt routed to 5/26 tools from apps ['reminders'] (budget 1800 tokens)
-2026-10-31 17:17:06,606 INFO train_0035 step 3: sys.ask_missing_info {'tool_name': 'smart_home.set_light', 'params': ['brightness', 'color']}
-2026-10-31 17:17:06,606 INFO train_0035 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:17:06,619 INFO Processed 30/100: train_0035 (60.1 s; average 32.8 s)
-2026-10-31 17:17:06,639 INFO train_0036 transcript: tắt tiền phòng làm việc đi là khôi khói không cần.
-2026-10-31 17:17:06,719 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:17:14,095 INFO train_0036 step 1: smart_home.get_status {'room': 'office'}
-2026-10-31 17:17:14,169 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:17:18,318 INFO train_0036 step 2: smart_home.get_status {'room': 'living_room'}
-2026-10-31 17:17:18,379 WARNING Tool prompt routed to 7/46 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:17:24,777 INFO train_0036 final: Tắt thiết bị trong phòng làm việc và phòng sinh hoạt, vì không có thiết bị nào được phát hiện. Yêu cầu đã được xử lý.  
-DONE
-2026-10-31 17:17:24,777 INFO train_0036 stopped: done (3 LLM turns)
-2026-10-31 17:17:24,793 INFO Processed 31/100: train_0036 (19.5 s; average 32.4 s)
-2026-10-31 17:17:24,853 INFO train_0037 transcript: nếu mai ngơ thì là thị giúp tôi đặt đi chơi công viên sáng nay luôn.
-2026-10-31 17:17:24,921 WARNING Tool prompt routed to 11/45 tools from apps ['smart_home', 'ewallet'] (budget 1800 tokens)
-2026-10-31 17:18:06,721 INFO train_0037 step 1: smart_home.get_status {'room': 'living'}
-2026-10-31 17:18:06,775 WARNING Tool prompt routed to 7/45 tools from apps ['smart_home'] (budget 1800 tokens)
-2026-10-31 17:18:13,354 INFO train_0037 step 2: sys.ask_missing_info {'tool_name': 'smart_home.get_status', 'params': ['room', 'floor', 'type']}
-2026-10-31 17:18:13,355 INFO train_0037 stopped: asked_missing (2 LLM turns)
-2026-10-31 17:18:13,367 INFO Processed 32/100: train_0037 (50.4 s; average 33.0 s)
-2026-10-31 17:18:13,395 INFO train_0038 transcript: em ơi đừng lắc bếp nhé cứ để đó.
-2026-10-31 17:18:13,440 WARNING Tool prompt routed to 11/47 tools from apps ['medication', 'smart_home'] (budget 1800 tokens)
-2026-10-31 17:18:54,829 INFO train_0038 final: DONE
-2026-10-31 17:18:54,829 INFO train_0038 stopped: done (1 LLM turns)
-2026-10-31 17:18:54,859 INFO Processed 33/100: train_0038 (42.6 s; average 33.3 s)
-2026-10-31 17:18:54,895 INFO train_0039 transcript: ò à nhóm qua gia lô cho minh là tối nay anh không ở nhà nhỉ.
-2026-10-31 17:18:54,957 WARNING Tool prompt routed to 12/40 tools from apps ['food_delivery', 'chat_ott', 'gold_price'] (budget 1800 tokens)
-2026-10-31 17:19:39,814 INFO train_0039 step 1: chat_ott.list_chats {}
-2026-10-31 17:19:39,857 WARNING Tool prompt routed to 6/40 tools from apps ['food_delivery'] (budget 1800 tokens)
-2026-10-31 17:19:45,294 WARNING train_0039 rejected before execution: chat_ott.get_chat Unknown tool or malformed arguments. Use the provided schema.
-2026-10-31 17:19:45,350 WARNING Tool prompt routed to 6/40 tools from apps ['food_delivery'] (budget 1800 tokens)
-2026-10-31 17:19:50,691 INFO train_0039 step 3: sys.ask_missing_info {'tool_name': 'chat_ott.get_chat', 'params': ['chat_id']}
-2026-10-31 17:19:50,691 INFO train_0039 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:19:50,701 INFO Processed 34/100: train_0039 (57.4 s; average 34.0 s)
-2026-10-31 17:19:50,733 INFO train_0040 transcript: ơi giờ lịch cà phê với gia đình mai buồn hơn nửa tiếng giúp chị nhé.
-2026-10-31 17:19:50,767 WARNING Tool prompt routed to 10/34 tools from apps ['phone', 'fuel_price', 'sms', 'tv'] (budget 1800 tokens)
-2026-10-31 17:19:57,969 INFO train_0040 step 1: phone.recent_calls {'missed_only': False}
-2026-10-31 17:19:58,005 WARNING Tool prompt routed to 10/34 tools from apps ['phone', 'fuel_price', 'sms', 'tv'] (budget 1800 tokens)
-2026-10-31 17:20:02,658 INFO train_0040 step 2: sms.read_recent {'contact_id': 'family', 'limit': 5}
-2026-10-31 17:20:02,701 WARNING Tool prompt routed to 10/34 tools from apps ['phone', 'fuel_price', 'sms', 'tv'] (budget 1800 tokens)
-2026-10-31 17:20:03,962 INFO train_0040 final: DONE
-2026-10-31 17:20:03,962 INFO train_0040 stopped: done (3 LLM turns)
-2026-10-31 17:20:03,975 INFO Processed 35/100: train_0040 (15.1 s; average 33.4 s)
-2026-10-31 17:20:04,022 INFO train_0041 transcript: nạp cho anh tuấn năm mươi nghìn và chuyển tiền điện tháng này cho thu mai nhé.
-2026-10-31 17:20:04,072 WARNING Tool prompt routed to 12/46 tools from apps ['ewallet', 'banking', 'sms'] (budget 1800 tokens)
-2026-10-31 17:20:46,634 INFO train_0041 step 1: sms.read_recent {'contact_id': 'CT002'}
-2026-10-31 17:20:46,692 WARNING Tool prompt routed to 10/46 tools from apps ['ewallet', 'banking'] (budget 1800 tokens)
-2026-10-31 17:20:52,124 INFO train_0041 step 2: banking.list_beneficiaries {}
-2026-10-31 17:20:52,185 WARNING Tool prompt routed to 10/46 tools from apps ['ewallet', 'banking'] (budget 1800 tokens)
-2026-10-31 17:20:58,943 INFO train_0041 step 3: sys.ask_missing_info {'tool_name': 'ewallet.transfer', 'params': ['contact_id', 'phone']}
-2026-10-31 17:20:58,944 INFO train_0041 stopped: asked_missing (3 LLM turns)
-2026-10-31 17:20:58,954 INFO Processed 36/100: train_0041 (57.0 s; average 34.1 s)
-2026-10-31 17:20:58,977 INFO train_0042 transcript: đặt báo thuyết sau buổi sáng mai với ý ngợi cho minh giúp tôi nhé.
-2026-10-31 17:20:59,021 WARNING Tool prompt routed to 13/39 tools from apps ['phone', 'tv', 'sms', 'music'] (budget 1800 tokens)
-2026-10-31 17:21:44,830 INFO train_0042 step 1: phone.recent_calls {'missed_only': False}
-2026-10-31 17:21:44,877 WARNING Tool prompt routed to 9/39 tools from apps ['phone', 'tv', 'sms'] (budget 1800 tokens)
-2026-10-31 17:21:51,030 INFO train_0042 step 2: sms.read_recent {'contact_id': 'contact_001', 'limit': 5}
-2026-10-31 17:21:51,077 WARNING Tool prompt routed to 9/39 tools from apps ['phone', 'tv', 'sms'] (budget 1800 tokens)

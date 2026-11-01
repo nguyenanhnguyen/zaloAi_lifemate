@@ -28,6 +28,7 @@ import unicodedata
 from pathlib import Path
 
 from .models import model_path
+from .text_norm import spoken_numbers_to_digits
 
 logger = logging.getLogger(__name__)
 # repo id -> pinned revision. Every entry must predate the competition's 2026-10-26 cutoff and
@@ -50,7 +51,8 @@ def asr_revision(repo: str) -> str:
 
 class WhisperASR:
     def __init__(self, model_name: str, *, max_new_tokens: int = 256, beams: int = 1,
-                 device: str = "cuda") -> None:
+                 device: str = "cuda", generate_overrides: dict | None = None,
+                 normalise_numbers: bool = True) -> None:
         import torch
         from transformers import AutoModelForSpeechSeq2Seq, AutoProcessor
 
@@ -59,6 +61,16 @@ class WhisperASR:
         self.torch = torch
         self.max_new_tokens = max_new_tokens
         self.beams = beams
+        # Extra `generate` arguments, so a decoding strategy can be compared by scripts/asr_bench.py
+        # and then used verbatim by the pipeline. Must stay deterministic: no sampling, fixed beams.
+        self.generate_overrides = dict(generate_overrides or {})
+        if self.generate_overrides.get("do_sample"):
+            raise ValueError("Sampling breaks the competition's deterministic-decoding rule")
+        # Whisper writes numbers as words; every numeric tool argument needs digits. Measured over
+        # the 100 train samples of local_v4: of 46 gold numeric arguments, 0 appeared literally in
+        # the raw transcript and 10 appear after this rewrite, with none broken. It does NOT improve
+        # WER (+0.31pp) -- WER scores words, the competition scores arguments. See EXPERIMENTS.md.
+        self.normalise_numbers = normalise_numbers
         # Measured after the LLM was optimised: ASR is 40% of total runtime (357 s of 893 s over 15
         # samples), not the ~1% it was when a single LLM turn cost 900 s. On a small card it still
         # runs on CPU by default to leave every byte of VRAM to the LLM, whose speed collapses once
@@ -106,11 +118,15 @@ class WhisperASR:
                 language="vi", task="transcribe", do_sample=False,
                 num_beams=self.beams, max_new_tokens=self.max_new_tokens, return_timestamps=long_audio,
                 stopping_criteria=StoppingCriteriaList([StopAtDeadline()]),
+                **self.generate_overrides,
             )
         if deadline is not None and time.perf_counter() >= deadline:
             raise TimeoutError("ASR exceeded sample budget; incomplete transcript discarded")
-        texts = self.processor.batch_decode(token_ids, skip_special_tokens=True)
-        return [unicodedata.normalize("NFC", text).strip() for text in texts]
+        texts = [unicodedata.normalize("NFC", text).strip()
+                 for text in self.processor.batch_decode(token_ids, skip_special_tokens=True)]
+        if self.normalise_numbers:
+            texts = [spoken_numbers_to_digits(text) for text in texts]
+        return texts
 
     def close(self) -> None:
         """Release the weights so the next model gets the whole card (see CachedASR)."""

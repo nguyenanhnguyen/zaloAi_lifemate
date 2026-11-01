@@ -4,6 +4,9 @@ models/
 checkpoints/
 __pycache__/
 *.jsonl
-# ...but the archive of finished runs is the point of keeping them: see results/README.md
-results/
+# Kết quả chạy thì nặng và tái tạo được, nhưng tài liệu phân tích từng lần chạy là thứ KHÔNG tái
+# tạo được — mất thư mục là mất hết lập luận. Nên chặn output, giữ lại .md.
+results/**
+!results/**/
+!results/**/*.md
 *.log

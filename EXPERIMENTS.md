@@ -4,6 +4,225 @@ Ghi lại từng lần chạy: tên run, mô hình, điểm chính thức và nh
 
 ---
 
+## Bảng điểm leaderboard — hai điểm thật duy nhất của dự án
+
+| Lần chạy | Điểm | Context | Prompt tool | LLM | Thinking |
+|---|---|---|---|---|---|
+| `local_v1` | **22.52** | 12288 | **nguyên catalogue** | Qwen3.5-4B Q8 | **bật** |
+| `kaggle_v1` | **13.41** | 4096 | route từng tool | Qwen3-4B bf16 | tắt |
+
+**Bài học trung tâm của dự án:** ASR tốt hơn (`PhoWhisper-large` 1.543B thay `PhoASR-small`), GPU
+thay CPU, LLM instruct mới hơn — và **mất 9 điểm**. Thứ quyết định không phải model, mà là **model
+có được nhìn thấy đủ công cụ hay không**, và **tool call có được đọc đúng hay không**.
+
+Phần mất điểm của `kaggle_v1` đo được rất gọn: 42 mẫu nộp 0 tool call (cả 42 đều `stop_reason: done`
+— bug parser) + 33 mẫu `failed`, hai nhóm không trùng nhau = **75 mẫu, 11.8 điểm mất trắng**.
+`13.41 + 11.8 = 25.2`, tức riêng hai nhóm này đã đủ giải thích cả khoảng cách, chưa tính 109 mẫu
+`asked_missing`.
+
+---
+
+## local v4 (chấm điểm) – **phát hiện: router prompt là chỗ mất điểm lớn nhất** (2026-10-31)
+
+Chạy 100 mẫu `train` có nhãn và chấm bằng `scripts/score.py` — lần đầu dự án biết điểm thật.
+Số đo và bảng chi tiết: [`results/local_v4/README.md`](results/local_v4/README.md).
+
+**Điểm 5.50 so với `local_v1` 22.52.** Ba phiên bản liên tiếp (v2 → v3 → v4) tối ưu tốc độ từ
+1027s xuống 34s/mẫu mà không lần nào chấm điểm; hoá ra đòn tăng tốc lớn nhất của v3 — cắt prompt về
+1800 token bằng router theo app — **là thứ phá điểm nặng nhất**.
+
+Đo trực tiếp: chỉ **24%** mẫu có đủ mọi app mà nhãn cần trong prompt; **43% không có app nào**.
+43 mẫu `asked_missing` không phải model bỏ cuộc sớm (giả thuyết tôi nêu lúc chạy được 14/100 — **sai**),
+mà là model không được nhìn thấy tool nó cần.
+
+**Router không sửa được bằng hàm xếp hạng tốt hơn.** Thử offline 4 hàm (Dice trên văn bản ghép,
+Dice max theo field, containment, containment có IDF): hàm tốt nhất đạt 41% recall@3 so với 35% hiện
+tại, và **không hàm nào vượt 60% kể cả khi cho 6 app**. So khớp từ vựng giữa transcript WER 23.6% và
+mô tả app là hướng chết — đừng thử lại, đừng viết router thứ năm.
+
+**Gốc rễ là `context_size 4096`.** Prompt đầy đủ tốn trung vị 5882 token (nén còn 4354), nên context
+4096 **bắt buộc** phải cắt — router là hệ quả, không phải lựa chọn. Cần ngân sách **6000 token** để
+giữ 100% app; luật BTC cho tới 16384 nên **context 8192 là hợp lệ**.
+
+### Laptop **không chạy được** cấu hình đúng — đã đo, đừng thử lại
+
+Dò 3 mẫu với `--context-size 8192 --prompt-token-budget 6000`: sau 20 phút **chưa xong mẫu đầu**.
+`nvidia-smi` lúc đó: **3945/3966 MiB, còn 21 MiB, GPU 100%** — attention ở ~6k token tràn hết card và
+spill sang RAM. Khớp với lịch sử notebook: v3 OOM ở context 6144 trên **một T4 15 GiB**, phải hạ về
+4096. Một card 4 GB không có cửa. Đã dừng, không để nó đốt 3 giờ cho 3 mẫu `time_limit`.
+
+Kết luận phân vai: **laptop** làm nghiên cứu không cần prompt dài (so sánh ASR, thí nghiệm offline
+bằng tokenizer — hai thí nghiệm router/budget ở trên không tốn một giây GPU nào). **Kaggle** đo cấu
+hình đúng.
+
+---
+
+## local v5 – nâng chất lượng ASR: beam search **thua**, chuẩn hoá số **thắng** (2026-10-31)
+
+Công cụ mới `scripts/asr_bench.py`: đo WER thật trên split `train` (có `audio_text`), nhiều chiến
+lược decode trên **cùng một bộ audio**, không tốn lượt nộp.
+
+### Beam search: loại
+
+| Cấu hình | WER (n=15) | s/file |
+|---|---|---|
+| `beam5` | **24.61%** | 22.4 |
+| `greedy` | 25.23% | **1.9** |
+| `beam5` + `no_repeat_ngram_size=4` | 26.17% | 21.9 |
+
+Beam search mua **0.62 điểm WER bằng 12 lần thời gian** — không đáng. Chặn n-gram lặp lại làm *tệ
+hơn*: tiếng Việt lặp từ hợp pháp ("nhắc tôi tôi"), chặn đi là cắt mất chữ đúng. Giữ greedy.
+
+### Lỗi thật của ASR là gì
+
+Soi 5 mẫu WER cao nhất: lỗi chia hai loại khác hẳn nhau.
+
+- **Lỗi thật** — giọng vùng miền và tên riêng: "vàng nhẫn"→"vàng dẫn", "Sống xanh"→"sóng sơn",
+  "podcast"→"post khác", "hàng chờ"→"hành trời". Đây là trần của model, không sửa bằng code.
+- **Không phải lỗi** — khác định dạng: nhãn ghi `18`, `60`, `SMS`; Whisper ghi "mười tám",
+  "sáu mươi", "em ét". WER tính là sai, nhưng nghĩa thì đúng.
+
+### Chuẩn hoá số: WER nói không, điểm nói có
+
+`src/text_norm.py` viết lại số nói thành chữ số. Hai phép đo cho hai kết luận trái ngược, và **phép
+đo thứ hai mới là phép đo đúng**:
+
+| Phép đo | Kết quả |
+|---|---|
+| WER (chỉ chuẩn hoá hypothesis) | **+0.31pp — tệ hơn** |
+| Gold numeric argument có mặt trong transcript | **0% → 22%** (10 đạt thêm, 0 mất) |
+
+BTC chấm **đối số tool**, không chấm từ. Một `{"amount": 50000}` phải ra đúng con số; transcript thô
+không chứa chuỗi `50000` ở **bất kỳ** mẫu nào trong 46 đối số numeric của 100 mẫu `train`. Sau khi
+chuẩn hoá thì 10 đối số xuất hiện nguyên văn, kể cả số điện thoại `09505360367`.
+
+**Tự sửa hai lần trong lúc làm — ghi lại để không lặp:**
+
+1. Lần đầu tôi đo được WER **giảm 1.24pp** và tưởng đã thắng. Sai: lúc đó tôi chuẩn hoá **cả
+   reference**, không được phép — reference là nhãn, phải giữ nguyên. Đo lại đúng cách thì WER *tăng*.
+2. Phần lớn "cải thiện" ảo đó đến từ `không` → `0`. Nhãn `train` **tự nó** chuẩn hoá sai như vậy
+   ("0 mưa thì thôi" = "không mưa thì thôi"), nên bắt chước nó thì đẹp WER mà làm transcript khó đọc
+   hơn cho LLM. Đã bỏ `không` khỏi bảng số. **Đừng tối ưu theo quirk của nhãn.**
+
+**Ba lỗi correctness đã bắt được bằng unit test** (17/17 case hiện pass, trong `src/text_norm.py`):
+
+- Số điện thoại đọc từng chữ số bị **cộng lại**: "không chín một chín ba bảy..." → `41` thay vì
+  `0919377320`. Chuỗi ≥3 chữ số đơn giờ được **nối**, không cộng. Sai số điện thoại là mất cả mẫu.
+- "hai ba" → `5`. Hai chữ số đơn liền nhau là nhập nhằng (23 hay "2 3"), cộng lại là cách chắc chắn
+  sai duy nhất → từ chối chuyển.
+- "bác ba" → "bác 3". Người Việt đặt tên theo thứ: *Bác Ba*, *Cô Tư* là người, không phải số. Gold
+  cần `query: "Bác Ba"`, mà token-F1 của `{bác, 3}` với `{bác, ba}` = 0.5 < ngưỡng 0.6 → **mất đối
+  số vì chính bản vá**. Giờ sau từ chỉ quan hệ/chức danh thì một chữ số đơn giữ nguyên là chữ, trừ
+  khi nó mở đầu số lớn hơn ("bác ba mươi tuổi" vẫn ra 30).
+
+Bật mặc định trong pipeline cục bộ, tắt bằng `--raw-numbers` để đo hai chiều. **Chưa đưa vào
+notebook V2** — V2 đang kiểm chứng việc bỏ route, đổi hai thứ cùng lúc thì không đọc được kết quả nào
+ra kết quả nào.
+
+### Đo end-to-end: **kết quả null**, và vì sao chưa kết luận được
+
+Chạy lại **22 mẫu mà router giữ đúng toàn bộ app gold** (chỗ duy nhất hiệu ứng không bị lỗi routing
+nhấn chìm), so với chính v4 trên đúng 22 mẫu đó:
+
+| | v4 (số nguyên văn) | v5 (chuẩn hoá số) |
+|---|---|---|
+| Điểm | **11.36** | **11.36** |
+| Mẫu hoàn hảo | 2 | 2 |
+| Lệch `state_hash` | 18 | 18 |
+
+Phép thử **có hiệu lực**, không phải không có gì xảy ra: 18/41 file âm cho transcript khác nhau,
+**8/22 mẫu ra `tool_calls` khác**, 6/22 khác `state_hash`. Nhưng tổng điểm bằng nhau — có mẫu tốt
+lên, có mẫu xấu đi, bù trừ hết.
+
+**Đây không phải bằng chứng phủ định, mà là phép đo thiếu lực.** 18/22 mẫu (82%) mất điểm vì lệch
+`state_hash` do chọn sai tool/đối số khác — thứ mà chuẩn hoá số không chạm tới. Phải sửa xong nguyên
+nhân đó rồi mới đo lại được hiệu ứng này. Giữ bật vì cơ chế rõ (0% → 22% đối số numeric có mặt, 0 cái
+bị phá), nhưng **ghi rõ là chưa chứng minh end-to-end**.
+
+Phép thử này còn bắt được lỗi thứ tư của normalizer: `"tắt đèn thằng hai giùm chị"` →
+`"đèn thằng 2"`. `thằng Hai` cũng là tên gọi theo thứ. Đã thêm `thằng, con, cháu, bé, mẹ, bố, ba, má`
+vào danh sách chức danh (16/16 unit case pass).
+
+---
+
+## kaggle_v2 – gửi cả catalogue tool, chia LLM lên 2 GPU (2026-10-31)
+
+Notebook mới `notebook/lifemate_kaggle_v2.ipynb`. Chi tiết cấu hình, cách chạy 2 phiên và danh sách
+file cần tải: [`results/kaggle_v2/README.md`](results/kaggle_v2/README.md).
+
+**`kaggle_v1` cũng route, không phải "không cắt prompt" như tôi ghi lúc đầu.** `MAX_CONTEXT 4096` trừ
+192 token output còn **3904**, trong khi prompt đã nén cần trung vị **4553**. `metrics.jsonl` không ghi
+số token nên không thấy trực tiếp, nhưng phép tính thì rõ, và `asked_missing 109/634` (17%) là đúng
+dấu vết đó — nhẹ hơn 43% của local v4 vì ngân sách gấp đôi.
+
+Thay đổi: context 4096 → **12288**, bỏ hẳn route, **chia LLM lên cả 2 T4** (một card không chứa nổi
+context đó), port bản vá parser văn xuôi (42 mẫu nộp 0 call ở V1), `context_limit` không còn giết cả
+run, và gate preflight chặn theo **tỉ lệ** lỗi >20% thay vì chặn khi có **một** mẫu `step_limit` —
+V1 đặt gate đó sẽ chặn oan một lần chạy 10 tiếng.
+
+Đo trước bằng tokenizer, đúng dạng prompt của notebook, trên 100 mẫu `train`: prompt lượt 1 schema
+**nguyên bản** trung vị 5945 / max 7783 < limit 12032 → **0/100 mẫu phải route**, và vẫn còn ~4200
+token cho tool result tích luỹ. Nên V2 gửi schema đầy đủ cả phần mô tả, không nén.
+
+Phiên 1 chạy preflight 50 mẫu `train` để lấy **điểm thật** (`local_train_score`) — V1 chưa bao giờ có
+số này. Chỉ sau khi điểm chấp nhận được mới chạy `public_test`.
+
+---
+
+## finetune v1 – QLoRA trên trajectory gold (2026-11-01, dữ liệu xong, **chưa huấn luyện**)
+
+`scripts/build_sft.py` + `scripts/train_sft.py`. Vận hành: [`results/finetune_v1/README.md`](results/finetune_v1/README.md).
+
+**Vì sao buộc phải fine-tune — một con số.** Trong phép thử chuẩn hoá số, 22 mẫu được đem so là
+những mẫu router giữ **đủ toàn bộ app gold**. Vậy mà chỉ 2/22 mẫu được điểm, 18/22 lệch `state_hash`.
+Route đúng cho gấp đôi điểm (11.36 vs 5.50) nhưng vẫn cách rất xa 22.52. Điều này sửa lại một khẳng
+định trước đó của chính tài liệu này: routing là nguyên nhân **lớn nhất đã đo được**, nhưng sửa nó
+một mình **không đủ** — model vẫn chọn sai tool và sai đối số khi đã có đủ công cụ trong tay. Prompt
+đúng chỉ là điều kiện cần.
+
+**Dữ liệu không cần tổng hợp gì.** Nhãn `train` đã là trajectory: `label.tool_calls` khớp 1:1 với
+`label.tool_results` ở cả 1434 mẫu có nhãn. Mỗi mẫu replay thành hội thoại nhiều lượt, lượt cuối
+`DONE` — quan trọng ngang các call, vì 111 mẫu có gold rỗng và model không học dừng sẽ luôn bịa thêm
+một call rồi mất precision.
+
+Huấn luyện trên **transcript ASR của chính ta**, không phải `audio_text` sạch — lúc chạy thật model
+chỉ thấy đầu ra ASR ở ~24% WER. Chi phí gần như bằng 0:
+
+| | `audio_text` (nhãn sạch) | **ASR thật** |
+|---|---|---|
+| Trung vị token | 5281 | **5306** |
+| p95 / max | — / 9503 | 8011 / **9554** |
+| Vừa seq 8192 | 96.4% | **96.0%** |
+
+1284 train / 261 eval, 0 mẫu bị loại, chia theo sha256 của id nên build lại không rò rỉ eval.
+
+**Mask loss là điểm sống còn, không phải tinh chỉnh.** Đo thật:
+
+```
+sft.train.jsonl: 1233 hội thoại, 51 bị bỏ vì >8192 token; giám sát 96168/6547604 token (1.5%)
+sft.eval.jsonl:   243 hội thoại, 18 bị bỏ vì >8192 token; giám sát 18632/1327915 token (1.4%)
+```
+
+Không mask thì **98.5% gradient đổ vào học thuộc lại kết quả tool** — văn bản model không bao giờ
+phải sinh ra, vì lúc chạy thật nó đến từ `ToolEnv` của BTC.
+
+Mặt khác của cùng con số: ngân sách tín hiệu thật chỉ **96k token giám sát**, 2 epoch ≈ 192k. Ít.
+Nên trông đợi là **chỉnh hành vi** (gọi đúng tool, đúng dạng đối số, biết dừng), không phải kiến
+thức mới. `encode()` khôi phục các đoạn assistant
+bằng cách render prefix tăng dần rồi diff, và **raise nếu template không prefix-stable** thay vì âm
+thầm train sai. Kiểm bằng `--inspect N`, không cần GPU hay `peft`.
+
+Mẫu dài hơn `--max-seq-len` bị **bỏ, không cắt**: cắt là mất đuôi, mà đuôi là các call cuối và `DONE`.
+
+**Base là Instruct, không phải Thinking** — trajectory không có khối `<think>` nào, còn template bản
+Thinking mở khối reasoning vô điều kiện và checkpoint được post-train để luôn suy luận; SFT trên
+target không-reasoning là dạy nó dập đúng hành vi nó được huấn luyện. Cũng giữ Kaggle V2 (Thinking,
+zero-shot) và bản fine-tune là **hai thí nghiệm khác nhau thật sự**.
+
+Chưa có điểm. Đừng ghi kết luận vào đây trước khi `scripts/score.py` cho số.
+
+---
+
 ## local v4 – thử ASR khác hẳn + sửa time leak thật của ASR (2026-10-31)
 
 Mục tiêu người dùng đặt ra: **laptop và Kaggle không được chạy trùng nhau**. Notebook v9 đang chạy

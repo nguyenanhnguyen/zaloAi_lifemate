@@ -1,0 +1,344 @@
+{
+ "greedy": {
+  "repo": "vinai/PhoWhisper-large",
+  "revision": "b9136a44b5f2ca664bd0b8f74baecf1715f6eeeb",
+  "kwargs": "{'beams': 1}",
+  "wer": 0.2523364485981308,
+  "seconds_per_file": 1.9330172266694716,
+  "samples": [
+   {
+    "id": "train_0001",
+    "wer": 0.21052631578947367,
+    "seconds": 2.68,
+    "hypothesis": "nếu may mưa thì dời chạy bỏ muộn một tiếng nhắn sức dũng giờ mới không mưa thì thôi.",
+    "reference": "Nếu mai mưa thì dời chạy bộ muộn 1 tiếng, nhắn Sếp Dũng giờ mới; không mưa thì thôi."
+   },
+   {
+    "id": "train_0124",
+    "wer": 0.34782608695652173,
+    "seconds": 1.94,
+    "hypothesis": "giờ lịch khám răng mai mủ sáu mươi phút nha đặt báo thức chứng đoán một tiếng rồi nhắn em ét cho bố giờ mới.",
+    "reference": "Dời lịch khám răng mai muộn 60 phút nha, đặt báo thức trước đó một tiếng, rồi nhắn SMS cho bố giờ mới."
+   },
+   {
+    "id": "train_0233",
+    "wer": 0.05555555555555555,
+    "seconds": 1.43,
+    "hypothesis": "tách đèn phòng ngủ đi em rồi nhắn tin cho hương là tối nay ăn cơm nhà nhé.",
+    "reference": "Tắt đèn phòng ngủ đi em, rồi nhắn tin cho Hương là tối nay ăn cơm nhà nhé."
+   },
+   {
+    "id": "train_0337",
+    "wer": 0.16,
+    "seconds": 2.02,
+    "hypothesis": "gọi cho tôi bún bò ở bún bò ghế cô ba mỗi người trong nhóm chắt gia đình một phần không tính thôi nha.",
+    "reference": "Gọi cho tôi Bún bò giò ở Bún bò Huế Cô Ba, mỗi người trong nhóm chat Gia đình một phần, không tính tôi nha."
+   },
+   {
+    "id": "train_0441",
+    "wer": 0.09090909090909091,
+    "seconds": 1.21,
+    "hypothesis": "thế thì em đăng ký luôn cho chìa khoá đấy nhé.",
+    "reference": "Thế thì em đăng ký luôn cho chị khoá đấy nhé."
+   },
+   {
+    "id": "train_0558",
+    "wer": 0.4666666666666667,
+    "seconds": 1.66,
+    "hypothesis": "thế thì cho tôi cái tạp mười tám của sóng sơn vào hành trời nhé.",
+    "reference": "Thế thì cho tôi cái tập số 18 của Sống xanh vào hàng chờ nhé."
+   },
+   {
+    "id": "train_0685",
+    "wer": 0.2631578947368421,
+    "seconds": 1.64,
+    "hypothesis": "thôi khỏi em ạ đừng tả lại nữa nhớ mới trao đổi qua thảo luận chung là được rồi.",
+    "reference": "Thôi khỏi em ạ, đừng tạo lại nữa, nhóm anh trao đổi qua tài liệu chung là được rồi."
+   },
+   {
+    "id": "train_0804",
+    "wer": 0.2413793103448276,
+    "seconds": 2.59,
+    "hypothesis": "xem giúp tôi thông báo chính thức mới nhất về tàu mét rô rồi có tập post cát nào nói về mét rô thì kêu vào danh sách nghe sau luôn nhé.",
+    "reference": "Xem giúp tôi thông báo chính thức mới nhất về tàu metro, rồi có tập podcast nào nói về metro thì cho vào danh sách nghe sau luôn nhé."
+   },
+   {
+    "id": "train_0910",
+    "wer": 0.1111111111111111,
+    "seconds": 2.67,
+    "hypothesis": "sáng mai anh có lịch gì không em xem luôn thời tiết mai thế nào nếu mà mưa thì nghỉ cái buổi chạy sớm nhất rồi nhấc anh tập trong nhà đúng giờ đấy nhỉ.",
+    "reference": "Sáng mai anh có lịch gì không em, xem luôn thời tiết mai thế nào. Nếu mà mưa thì hủy cái buổi chạy sớm nhất đi, rồi nhắc anh tập trong nhà đúng giờ đấy nhé."
+   },
+   {
+    "id": "train_1029",
+    "wer": 0.34782608695652173,
+    "seconds": 1.92,
+    "hypothesis": "trả lời chị thu là chiều chị gửi nhá à thôi khởi kết sau kia chị anh ra rồi xáo méo đó đi.",
+    "reference": "Trả lời chị Thu là chiều chị gửi nhé. À thôi, khỏi. Cái sao kê chị in ra rồi, xoá mail đó đi."
+   },
+   {
+    "id": "train_1150",
+    "wer": 0.3333333333333333,
+    "seconds": 2.09,
+    "hypothesis": "ờ cứ kháng sinh chiều nay mà trước sáu giờ thì gọi tôi bụng bo giò à thôi đặt bia đi.",
+    "reference": "Ờ... cữ kháng sinh chiều ni mà trước sáu giờ thì gọi tô bún bò giò, à thôi, đặc biệt đi."
+   },
+   {
+    "id": "train_1270",
+    "wer": 0.17647058823529413,
+    "seconds": 1.55,
+    "hypothesis": "thôi cho con robot về đi em bé bón dề rồi đang lon ton ra bếp chìa.",
+    "reference": "Thôi cho con robot về đi em, bé Bống dậy rồi, đang lon ton ra bếp kìa."
+   },
+   {
+    "id": "train_1384",
+    "wer": 0.4090909090909091,
+    "seconds": 1.87,
+    "hypothesis": "thằng út nghe post khác nói vàng dẫn lên dở lắm coi dùng thôi bữa nay vàng dẫn bắn ra bao nhiêu nhan.",
+    "reference": "Thằng Út nghe podcast nói vàng nhẫn lên dữ lắm, coi giùm tôi bữa nay vàng nhẫn bán ra bao nhiêu nghen."
+   },
+   {
+    "id": "train_1507",
+    "wer": 0.2631578947368421,
+    "seconds": 1.57,
+    "hypothesis": "thôi chị đi có hội thảo bên nhà em đặt báo trước giờ thay mặt một tiếng nhé.",
+    "reference": "Thôi chị đi cái hội thảo bên Nhật, em đặt báo thức trước giờ khai mạc một tiếng nhé."
+   },
+   {
+    "id": "train_1624",
+    "wer": 0.3333333333333333,
+    "seconds": 2.16,
+    "hypothesis": "tối mai bảy rưỡi bút dùng cô buổi tiếng anh trên web list education khoái đó chưa đăng kí thì đăng kí luôn nha.",
+    "reference": "Tối mai bảy rưỡi book giùm cô buổi tiếng Anh bên Maple Leaf Education, khóa đó chưa đăng ký thì đăng ký luôn nha."
+   }
+  ]
+ },
+ "beam5": {
+  "repo": "vinai/PhoWhisper-large",
+  "revision": "b9136a44b5f2ca664bd0b8f74baecf1715f6eeeb",
+  "kwargs": "{'beams': 5}",
+  "wer": 0.24610591900311526,
+  "seconds_per_file": 22.414841406664344,
+  "samples": [
+   {
+    "id": "train_0001",
+    "wer": 0.21052631578947367,
+    "seconds": 22.41,
+    "hypothesis": "nếu may mưa thì dời chạy bỏ muộn một tiếng nhắn sức dũng giờ mới không mưa thì thôi.",
+    "reference": "Nếu mai mưa thì dời chạy bộ muộn 1 tiếng, nhắn Sếp Dũng giờ mới; không mưa thì thôi."
+   },
+   {
+    "id": "train_0124",
+    "wer": 0.34782608695652173,
+    "seconds": 27.31,
+    "hypothesis": "giờ lịch khám răng mai mủ sáu mươi phút nha đặt báo thức chứng đoán một tiếng rồi nhắn em ét cho bố giờ mới.",
+    "reference": "Dời lịch khám răng mai muộn 60 phút nha, đặt báo thức trước đó một tiếng, rồi nhắn SMS cho bố giờ mới."
+   },
+   {
+    "id": "train_0233",
+    "wer": 0.05555555555555555,
+    "seconds": 17.09,
+    "hypothesis": "tách đèn phòng ngủ đi em rồi nhắn tin cho hương là tối nay ăn cơm nhà nhé.",
+    "reference": "Tắt đèn phòng ngủ đi em, rồi nhắn tin cho Hương là tối nay ăn cơm nhà nhé."
+   },
+   {
+    "id": "train_0337",
+    "wer": 0.16,
+    "seconds": 24.16,
+    "hypothesis": "gọi cho tôi bún bò ở bún bò ghế cô ba mỗi người trong nhóm chắt gia đình một phần không tính thôi nha.",
+    "reference": "Gọi cho tôi Bún bò giò ở Bún bò Huế Cô Ba, mỗi người trong nhóm chat Gia đình một phần, không tính tôi nha."
+   },
+   {
+    "id": "train_0441",
+    "wer": 0.09090909090909091,
+    "seconds": 12.6,
+    "hypothesis": "thế thì em đăng ký luôn cho chìa khoá đấy nhé.",
+    "reference": "Thế thì em đăng ký luôn cho chị khoá đấy nhé."
+   },
+   {
+    "id": "train_0558",
+    "wer": 0.4666666666666667,
+    "seconds": 18.05,
+    "hypothesis": "thế thì cho tôi cái tạp mười tám của sóng sơn vào hành trời nhé.",
+    "reference": "Thế thì cho tôi cái tập số 18 của Sống xanh vào hàng chờ nhé."
+   },
+   {
+    "id": "train_0685",
+    "wer": 0.2631578947368421,
+    "seconds": 19.54,
+    "hypothesis": "thôi khỏi em ạ đừng tả lại nữa nhớ mới trao đổi qua thảo luận chung là được rồi.",
+    "reference": "Thôi khỏi em ạ, đừng tạo lại nữa, nhóm anh trao đổi qua tài liệu chung là được rồi."
+   },
+   {
+    "id": "train_0804",
+    "wer": 0.2413793103448276,
+    "seconds": 30.91,
+    "hypothesis": "xem giúp tôi thông báo chính thức mới nhất về tàu mét rô rồi có tập post cát nào nói về mét rô thì kêu vào danh sách nghe sau luôn nhé.",
+    "reference": "Xem giúp tôi thông báo chính thức mới nhất về tàu metro, rồi có tập podcast nào nói về metro thì cho vào danh sách nghe sau luôn nhé."
+   },
+   {
+    "id": "train_0910",
+    "wer": 0.1111111111111111,
+    "seconds": 33.31,
+    "hypothesis": "sáng mai anh có lịch gì không em xem luôn thời tiết mai thế nào nếu mà mưa thì nghỉ cái buổi chạy sớm nhất rồi nhấc anh tập trong nhà đúng giờ đấy nhỉ.",
+    "reference": "Sáng mai anh có lịch gì không em, xem luôn thời tiết mai thế nào. Nếu mà mưa thì hủy cái buổi chạy sớm nhất đi, rồi nhắc anh tập trong nhà đúng giờ đấy nhé."
+   },
+   {
+    "id": "train_1029",
+    "wer": 0.2608695652173913,
+    "seconds": 22.18,
+    "hypothesis": "trả lời chị thu là chiều chị gửi nhá à thôi khỏi kết sau kê chị anh ra rồi xáo méo đó đi.",
+    "reference": "Trả lời chị Thu là chiều chị gửi nhé. À thôi, khỏi. Cái sao kê chị in ra rồi, xoá mail đó đi."
+   },
+   {
+    "id": "train_1150",
+    "wer": 0.3333333333333333,
+    "seconds": 22.82,
+    "hypothesis": "ờ cứ kháng sinh chiều nay mà trước sáu giờ thì gọi tôi bụng bo giò à thôi đặt bia đi.",
+    "reference": "Ờ... cữ kháng sinh chiều ni mà trước sáu giờ thì gọi tô bún bò giò, à thôi, đặc biệt đi."
+   },
+   {
+    "id": "train_1270",
+    "wer": 0.23529411764705882,
+    "seconds": 17.64,
+    "hypothesis": "thôi cho con robot về đi em bé bỏng dậy rồi đang loan toan ra bếp trìa.",
+    "reference": "Thôi cho con robot về đi em, bé Bống dậy rồi, đang lon ton ra bếp kìa."
+   },
+   {
+    "id": "train_1384",
+    "wer": 0.36363636363636365,
+    "seconds": 23.25,
+    "hypothesis": "thằng út nghe post khác nói vàng dẫn lên dở lắm coi chừng thôi bữa nay vàng dẫn bắn ra bao nhiêu nghen.",
+    "reference": "Thằng Út nghe podcast nói vàng nhẫn lên dữ lắm, coi giùm tôi bữa nay vàng nhẫn bán ra bao nhiêu nghen."
+   },
+   {
+    "id": "train_1507",
+    "wer": 0.2631578947368421,
+    "seconds": 19.11,
+    "hypothesis": "thôi chị đi có hội thảo bên nhà em đặt báo trước giờ thay mặt một tiếng nhé.",
+    "reference": "Thôi chị đi cái hội thảo bên Nhật, em đặt báo thức trước giờ khai mạc một tiếng nhé."
+   },
+   {
+    "id": "train_1624",
+    "wer": 0.3333333333333333,
+    "seconds": 25.86,
+    "hypothesis": "tối mai bảy rưỡi bút dùng cô buổi tiếng anh trên web list education khoái đó chưa đăng kí thì đăng kí luôn nha.",
+    "reference": "Tối mai bảy rưỡi book giùm cô buổi tiếng Anh bên Maple Leaf Education, khóa đó chưa đăng ký thì đăng ký luôn nha."
+   }
+  ]
+ },
+ "beam5_norepeat": {
+  "repo": "vinai/PhoWhisper-large",
+  "revision": "b9136a44b5f2ca664bd0b8f74baecf1715f6eeeb",
+  "kwargs": "{'beams': 5, 'generate_overrides': {'no_repeat_ngram_size': 4}}",
+  "wer": 0.2616822429906542,
+  "seconds_per_file": 21.907863793328094,
+  "samples": [
+   {
+    "id": "train_0001",
+    "wer": 0.2631578947368421,
+    "seconds": 22.33,
+    "hypothesis": "nếu may mưa thì dời chạy bỏ muộn một tiếng nhắn sức dũng giờ mới không mưa từ thôi.",
+    "reference": "Nếu mai mưa thì dời chạy bộ muộn 1 tiếng, nhắn Sếp Dũng giờ mới; không mưa thì thôi."
+   },
+   {
+    "id": "train_0124",
+    "wer": 0.34782608695652173,
+    "seconds": 26.64,
+    "hypothesis": "giờ lịch khám răng mai mủ sáu mươi phút nha đặt báo thức chứng đoán một tiếng rồi nhắn em ét cho bố giờ mới.",
+    "reference": "Dời lịch khám răng mai muộn 60 phút nha, đặt báo thức trước đó một tiếng, rồi nhắn SMS cho bố giờ mới."
+   },
+   {
+    "id": "train_0233",
+    "wer": 0.05555555555555555,
+    "seconds": 16.67,
+    "hypothesis": "tách đèn phòng ngủ đi em rồi nhắn tin cho hương là tối nay ăn cơm nhà nhé.",
+    "reference": "Tắt đèn phòng ngủ đi em, rồi nhắn tin cho Hương là tối nay ăn cơm nhà nhé."
+   },
+   {
+    "id": "train_0337",
+    "wer": 0.24,
+    "seconds": 23.65,
+    "hypothesis": "gọi cho tôi bún vợ bún bò ghế cô ba mỗi người trong nhóm chắt gia đình một phần không tính thôi nha.",
+    "reference": "Gọi cho tôi Bún bò giò ở Bún bò Huế Cô Ba, mỗi người trong nhóm chat Gia đình một phần, không tính tôi nha."
+   },
+   {
+    "id": "train_0441",
+    "wer": 0.09090909090909091,
+    "seconds": 12.38,
+    "hypothesis": "thế thì em đăng ký luôn cho chìa khoá đấy nhé.",
+    "reference": "Thế thì em đăng ký luôn cho chị khoá đấy nhé."
+   },
+   {
+    "id": "train_0558",
+    "wer": 0.4666666666666667,
+    "seconds": 17.63,
+    "hypothesis": "thế thì cho tôi cái tạp mười tám của sóng sơn vào hành trời nhé.",
+    "reference": "Thế thì cho tôi cái tập số 18 của Sống xanh vào hàng chờ nhé."
+   },
+   {
+    "id": "train_0685",
+    "wer": 0.2631578947368421,
+    "seconds": 19.13,
+    "hypothesis": "thôi khỏi em ạ đừng tả lại nữa nhớ mới trao đổi qua thảo luận chung là được rồi.",
+    "reference": "Thôi khỏi em ạ, đừng tạo lại nữa, nhóm anh trao đổi qua tài liệu chung là được rồi."
+   },
+   {
+    "id": "train_0804",
+    "wer": 0.2413793103448276,
+    "seconds": 30.32,
+    "hypothesis": "xem giúp tôi thông báo chính thức mới nhất về tàu mét rô rồi có tập post cát nào nói về mét rô thì kêu vào danh sách nghe sau luôn nhé.",
+    "reference": "Xem giúp tôi thông báo chính thức mới nhất về tàu metro, rồi có tập podcast nào nói về metro thì cho vào danh sách nghe sau luôn nhé."
+   },
+   {
+    "id": "train_0910",
+    "wer": 0.1111111111111111,
+    "seconds": 32.76,
+    "hypothesis": "sáng mai anh có lịch gì không em xem luôn thời tiết mai thế nào nếu mà mưa thì nghỉ cái buổi chạy sớm nhất rồi nhấc anh tập trong nhà đúng giờ đấy nhỉ.",
+    "reference": "Sáng mai anh có lịch gì không em, xem luôn thời tiết mai thế nào. Nếu mà mưa thì hủy cái buổi chạy sớm nhất đi, rồi nhắc anh tập trong nhà đúng giờ đấy nhé."
+   },
+   {
+    "id": "train_1029",
+    "wer": 0.2608695652173913,
+    "seconds": 22.16,
+    "hypothesis": "trả lời chị thu là chiều chị gửi nhá à thôi khỏi kết sau kê chị anh ra rồi xáo méo đó đi.",
+    "reference": "Trả lời chị Thu là chiều chị gửi nhé. À thôi, khỏi. Cái sao kê chị in ra rồi, xoá mail đó đi."
+   },
+   {
+    "id": "train_1150",
+    "wer": 0.3333333333333333,
+    "seconds": 22.57,
+    "hypothesis": "ờ cứ kháng sinh chiều nay mà trước sáu giờ thì gọi tôi bụng bo giò à thôi đặt bia đi.",
+    "reference": "Ờ... cữ kháng sinh chiều ni mà trước sáu giờ thì gọi tô bún bò giò, à thôi, đặc biệt đi."
+   },
+   {
+    "id": "train_1270",
+    "wer": 0.23529411764705882,
+    "seconds": 17.44,
+    "hypothesis": "thôi cho con robot về đi em bé bỏng dậy rồi đang loan toan ra bếp trìa.",
+    "reference": "Thôi cho con robot về đi em, bé Bống dậy rồi, đang lon ton ra bếp kìa."
+   },
+   {
+    "id": "train_1384",
+    "wer": 0.5,
+    "seconds": 21.8,
+    "hypothesis": "thằng út nghe post khác nói rằng dẫn lên dở lắm coi chừng thôi bữa nay rành dẫn bắn ra bao nhiêu nhan.",
+    "reference": "Thằng Út nghe podcast nói vàng nhẫn lên dữ lắm, coi giùm tôi bữa nay vàng nhẫn bán ra bao nhiêu nghen."
+   },
+   {
+    "id": "train_1507",
+    "wer": 0.2631578947368421,
+    "seconds": 18.68,
+    "hypothesis": "thôi chị đi có hội thảo bên nhà em đặt báo trước giờ thay mặt một tiếng nhé.",
+    "reference": "Thôi chị đi cái hội thảo bên Nhật, em đặt báo thức trước giờ khai mạc một tiếng nhé."
+   },
+   {
+    "id": "train_1624",
+    "wer": 0.2916666666666667,
+    "seconds": 24.45,
+    "hypothesis": "tối mai bảy rưỡi bút dùng cô buổi tiếng anh trên web list education khoái đó chưa đăng ký thì đăng kí luôn nha.",
+    "reference": "Tối mai bảy rưỡi book giùm cô buổi tiếng Anh bên Maple Leaf Education, khóa đó chưa đăng ký thì đăng ký luôn nha."
+   }
+  ]
+ }
+}
