@@ -150,9 +150,13 @@ def main() -> None:
     args = parser.parse_args()
 
     from transformers import AutoTokenizer
-    from src.llm_agent import LLM_REPO, LLM_REVISION
-    source = args.model or LLM_REPO
-    revision = None if args.model else LLM_REVISION
+    if args.model:
+        # Stand-alone: this file plus the two JSONL datasets is enough to train on a fresh box
+        # (Kaggle, or the Docker build), with no need to carry src/ along.
+        source, revision = args.model, None
+    else:
+        from src.llm_agent import LLM_REPO, LLM_REVISION
+        source, revision = LLM_REPO, LLM_REVISION
     tokenizer = AutoTokenizer.from_pretrained(source, revision=revision)
 
     if args.inspect:
