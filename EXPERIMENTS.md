@@ -46,6 +46,12 @@ giữ 100% app; luật BTC cho tới 16384 nên **context 8192 là hợp lệ**.
 
 ### Laptop **không chạy được** cấu hình đúng — đã đo, đừng thử lại
 
+> ⚠️ **Kết luận này đang bị nghi vấn (2026-11-02).** Nó rất có thể là bug `enable_gqa` ở mục
+> `kaggle_v2 chạy thật`, không phải trần cứng của card: context 8192 nghĩa là
+> `32 × 8192² × 2 byte = 4 GiB` ma trận attention — một mình nó đã quá card 4 GB, và con số
+> "còn 21 MiB" dưới đây khớp chính xác với kiểu tràn đó. Bản vá đã vào `src/llm_agent.py`.
+> **Phải đo lại trước khi tin đoạn dưới.** Chưa đo lại vì việc trên Kaggle gấp hơn.
+
 Dò 3 mẫu với `--context-size 8192 --prompt-token-budget 6000`: sau 20 phút **chưa xong mẫu đầu**.
 `nvidia-smi` lúc đó: **3945/3966 MiB, còn 21 MiB, GPU 100%** — attention ở ~6k token tràn hết card và
 spill sang RAM. Khớp với lịch sử notebook: v3 OOM ở context 6144 trên **một T4 15 GiB**, phải hạ về
@@ -158,7 +164,10 @@ dấu vết đó — nhẹ hơn 43% của local v4 vì ngân sách gấp đôi.
 > ⚠️ **Khẳng định sai, đã sửa (2026-11-01).** Đoạn dưới nói V2 "chia LLM lên cả 2 T4 (một card không
 > chứa nổi context đó)". Tôi khẳng định mà **không hề tính**. Phép tính: trọng số fp16 7.49 GiB + KV
 > cache 12288 token 1.69 GiB (36 lớp × 8 KV head × 128 dim × 2 × 2 byte = **144 KiB/token**) =
-> **9.18 GiB trên 14.46 GiB trống** — một card dư 5.28 GiB. Sharding không mang lại gì, lại là khác
+> **9.18 GiB trên 14.46 GiB trống** — một card dư 5.28 GiB. *(Con số 9.18 này vẫn **thiếu** workspace
+> attention lúc prefill, đúng thứ làm V14 OOM; tổng thật sau khi vá GQA là ~13.2 GiB. Xem mục
+> `kaggle_v2 chạy thật` phía dưới. Tức tôi viết con số chưa tính **hai lần liên tiếp**.)* Sharding
+> không mang lại gì, lại là khác
 > biệt cấu trúc **duy nhất** so với mọi cấu hình đã chạy được (V1 và laptop đều 1 GPU) trong khi
 > `cache.crop()` chưa bao giờ chạy với các lớp trải trên hai card, và lần chạy Kaggle đầu tiên chết
 > đúng trong `model.generate()`. `SHARD_LLM_ACROSS_GPUS` giờ mặc định `False`; GPU thứ hai vẫn dùng
@@ -175,6 +184,84 @@ token cho tool result tích luỹ. Nên V2 gửi schema đầy đủ cả phần
 
 Phiên 1 chạy preflight 50 mẫu `train` để lấy **điểm thật** (`local_train_score`) — V1 chưa bao giờ có
 số này. Chỉ sau khi điểm chấp nhận được mới chạy `public_test`.
+
+---
+
+## kaggle_v2 chạy thật – 5 lần thất bại, và điều chúng dạy (2026-11-01 → 02)
+
+| Ver | Thời gian | Kết cục | Nguyên nhân |
+|---|---|---|---|
+| 11 | 45 s | `FileNotFoundError` checkpoint | `allow_patterns` thiếu `*.bin`; PhoWhisper-large không có safetensors |
+| 12 | 225 s | `NameError: TRANSCRIPTS` | `TRANSCRIPTS` nạp sau khi dựng `config` |
+| 13 | 238 s | traceback bị cắt | — (không chẩn đoán được từ log) |
+| 14 | 227 s | `OutOfMemoryError` 5.00 GiB | `enable_gqa=True` của transformers là đường math kernel, O(N²) |
+| 15 | 1499 s | 4/5 mẫu `LLM token limit reached` | bản **Thinking** tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>` |
+
+**Lỗi chung của V11–V13 là của tôi, không phải của dữ liệu người dùng.** Tôi kiểm cú pháp code mình
+viết nhưng không kiểm **những khẳng định** mình dựng lên trên đó. Hai công cụ ra đời để chặn đúng lớp
+lỗi ấy mà không cần GPU: [`scripts/diag/check_notebook_order.py`](scripts/diag/check_notebook_order.py)
+(AST, dùng-trước-khi-gán; đã kiểm ngược trên bản chưa vá → đúng 1 phát hiện là bug thật) và
+[`scripts/diag/verify_notebook.py`](scripts/diag/verify_notebook.py) (14 hạng mục).
+
+### V14: `enable_gqa` là đường math kernel, không phải đường tránh nó
+
+`5.00 GiB = 32 head × N² × 2 byte → N ≈ 9160 token`. `transformers` bật `enable_gqa=True` mỗi khi
+`attention_mask is None` — đúng ca batch=1 không padding — và **comment trong code của nó nói làm vậy
+để *tránh* math kernel**. Đo trên torch 2.11 thì ngược lại.
+
+Giả thuyết đầu của tôi (`torch.use_deterministic_algorithms` ép math backend) **sai, và tôi tự chứng
+minh nó sai bằng phép đo**: cờ đó không đổi gì ở N=1024/2048/3072. Rồi benchmark 3 chiều:
+
+```
+SDPA trần, N=1024/2048/3072:  enable_gqa  372 / 1312 / 2844 MiB     (≈ N²)
+                              repeat_kv     8 /   16 /   24 MiB     (≈ N)   -> 118x ở N=3072
+Qwen3-4B thật,  N=2048→4096:  chưa vá    1657 → 5638 MiB  (×3,4)
+                              đã vá       902 → 1792 MiB  (×1,99)
+```
+
+Vá: `_sdpa.use_gqa_in_sdpa = lambda *a, **k: False` (notebook cell 9 + `src/llm_agent.py`).
+Kiểm thêm ở pha **decode** (q_len=1, N=9160): `repeat_kv` còn **nhanh hơn** `enable_gqa` 3× và tốn ít
+bộ nhớ hơn — tức bản vá đúng ở cả hai pha. (Ở đây tôi lại đoán sai một lần nữa: tôi dự là vá làm
+decode chậm đi vì phải copy K,V mỗi token, và phép đo nói ngược lại.)
+
+**Hệ quả chưa kiểm:** kết luận "laptop có trần VRAM cứng ở context lớn" (mục `local v4` bên dưới) có
+thể chính là bug này — context 8192 nghĩa là `32 × 8192² × 2 = 4 GiB` trên một card 4 GB. **Phải đo
+lại trước khi tin kết luận đó.**
+
+### V15: hạ tầng thông, và bản Thinking bị loại bằng số đo
+
+Model nạp xong, prefill ~9160 token chạy qua, `train_0063` hoàn tất đúng (1 call, `done`). Nhưng
+4/5 mẫu nộp **0 call** vì đầu ra bị cắt. Đây là thay đổi duy nhất của V2 **không có số đo nào đứng
+sau** khi tôi làm nó, và giờ có số đo thì nó thất bại.
+
+**Hai con số V15 cho, chưa từng có:**
+
+1. **~9 token/s trên T4 ở context ~9k.** Mỗi mẫu lỗi đi qua đúng 2 lượt sinh 1024 token, nên
+   `(273 − ~5 s ASR)/2048 ≈ 0,13 s/token`; bốn mẫu cho 7,6 / 10,2 / 9,1 / 7,9 — nhất quán. Một lượt
+   1024 token mất **~114 s**, nên mốc 30 s của vòng Docker loại hẳn cách này *không cần* phép quy
+   chiếu T4→A30 nào.
+2. 9 token/s thấp hơn ~4 lần trần băng thông của chính T4 → nút cổ chai có lẽ là **overhead mỗi
+   token**, không phải băng thông. Nếu đúng vậy, A30 **không** cứu được nhiều như tỉ lệ 2,9× gợi ý.
+   Chưa đo, chưa kết luận — nhưng đây là rủi ro lớn nhất còn lại cho vòng Docker.
+
+**Quyết định: về `Qwen3-4B-Instruct-2507`, `ENABLE_THINKING = False`, `MAX_NEW_TOKENS = 256`.** Lý do
+quyết định không phải thời gian mà là **tính nhất quán với fine-tune**: `scripts/train_sft.py` gắn
+cứng vào Instruct vì quỹ đạo gold không có khối `<think>`, và adapter LoRA học trên trọng số Instruct
+không nạp lên trọng số Thinking được. Fine-tune là hướng bắt buộc → inference phải cùng checkpoint.
+
+Nói thật đánh đổi: bỏ reasoning là bỏ đúng cái tương quan với 22.52. Nhưng `local_v1` cho reasoning
+**512** token trên model **hybrid** Qwen3.5-4B biết suy luận *ngắn*; `Qwen3-4B-Thinking-2507` là
+checkpoint chuyên suy luận, template luôn mở `<think>` nên `ENABLE_THINKING=False` **vô hiệu** với nó
+và không có cách bảo nó suy luận ngắn. Hai thứ không thay thế được nhau.
+
+> ⚠️ **Lời khuyên cũ của tôi đã bị xoá.** `results/kaggle_v2/README.md` từng viết: "nếu nhiều mẫu báo
+> token limit thì nâng `MAX_NEW_TOKENS` lên 1536". Nó làm **cả hai** vấn đề tệ hơn. Lời khuyên đó
+> được viết khi tôi chưa có một số đo thời gian nào.
+
+Hai sửa đổi độ bền kèm theo: lần cắt thứ hai trả về `stop_reason='invalid_output'` và **giữ các call
+đã thực hiện** thay vì làm lỗi cả mẫu (submission chỉ tốt lên hoặc giữ nguyên); và cổng
+3-lỗi-liên-tiếp chỉ còn gắt trên `train` (đang đo → dừng sớm là đúng), nới lên 10 trên `public_test`
+(chết ở mẫu 400/634 sau 6 giờ là mất trắng phiên đó). OOM vẫn giết run ở mọi split.
 
 ---
 
@@ -693,3 +780,7 @@ tool-calling** (không so sánh thời gian, vì bản cũ không đúng luật 
 | `code_hash` tĩnh trong fingerprint | Hash tính tay, lỗi thời khi sửa notebook | Dùng `pipeline_version` string |
 | Điểm local cao nhưng không khớp luật | Chỉ đo chất lượng, quên giới hạn 30s/mẫu của BTC | Luôn đối chiếu `seconds` trong metrics với 30s trước khi tin điểm |
 | llama.cpp CPU vs transformers GPU | llama.cpp tiện cho máy yếu nhưng sai hướng tối ưu (BTC chạy A30 GPU) | Nhắm đúng hardware chấm điểm (A30), chạy local bằng GPU + shared VRAM tự nhiên |
+| 5 lần chạy Kaggle thất bại liên tiếp (V11–V15) | Tôi kiểm **code** mình viết nhưng không kiểm **khẳng định** mình dựng trên đó: con số chưa tính, pattern chép tay thiếu, cấu hình chọn theo lập luận chứ không theo phép đo | Đo trên model thật trước khi đưa người dùng chạy. Hai checker offline (`check_notebook_order.py`, `verify_notebook.py`) chặn lớp lỗi "chỉ lộ sau khi tải 13 GiB trọng số" |
+| Con số sai trong tài liệu, hai lần liên tiếp (5.28 GiB dư → thực ra OOM) | Viết phép tính thiếu một hạng tử (workspace attention) rồi dùng nó để ra quyết định | **Đừng viết một con số vào tài liệu nếu chưa tính nó**, và khi đã tính thì liệt kê đủ hạng tử dưới dạng bảng để chỗ thiếu lộ ra |
+| Tin comment trong thư viện | Comment của `transformers` nói `enable_gqa` *tránh* math kernel; đo được điều ngược lại | Benchmark, đừng đọc comment. Ba lần trong dự án này tôi đoán sai cơ chế và phép đo nói ngược lại |
+| Chọn model theo lập luận tương quan | "22.52 có reasoning, 13.41 không reasoning → bật reasoning" bỏ qua việc hai model reasoning rất khác nhau (hybrid 512 token vs checkpoint chuyên suy luận) | Ràng buộc cứng trước (fine-tune dùng checkpoint nào?), tương quan sau |

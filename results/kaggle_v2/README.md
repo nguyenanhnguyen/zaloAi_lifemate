@@ -1,7 +1,31 @@
-# kaggle_v2 — gửi cả catalogue tool, không route *(chưa chạy)*
+# kaggle_v2 — gửi cả catalogue tool, không route *(chưa có điểm)*
 
 Notebook: [`notebook/lifemate_kaggle_v2.ipynb`](../../notebook/lifemate_kaggle_v2.ipynb),
 `RUN_NAME = 'kaggle_v2'`. Thư mục này trống cho tới khi có kết quả tải về.
+
+## Lịch sử các lần chạy trên Kaggle
+
+| Ver | Thời gian | Kết cục | Nguyên nhân |
+|---|---|---|---|
+| 11 | 45 s | `FileNotFoundError` checkpoint | `allow_patterns` thiếu `*.bin`; PhoWhisper-large không có safetensors |
+| 12 | 225 s | `NameError: TRANSCRIPTS` | `TRANSCRIPTS` nạp sau khi dựng `config` |
+| 13 | 238 s | traceback bị cắt | — (không chẩn đoán được từ log) |
+| 14 | 227 s | `OutOfMemoryError` 5.00 GiB | `enable_gqa=True` của transformers là đường math kernel, O(N²) |
+| 15 | 1499 s | 4/5 mẫu `LLM token limit reached` | bản **Thinking** tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>` |
+
+Từ V15 trở đi hạ tầng đã thông: model nạp xong, prefill ~9160 token chạy qua, 1 mẫu hoàn tất
+đúng (`train_0063`, 1 call, `done`). Những gì còn lại là chất lượng, không phải lỗi hệ thống.
+
+### V15 cho hai con số chưa từng có
+
+**Thông lượng sinh token: ~9 token/s trên T4 ở context ~9k.** Mỗi mẫu lỗi đi qua đúng 2 lượt sinh
+1024 token (lần đầu cụt → nhắc lại → cụt → dừng), nên `(273 − ~5 s ASR) / 2048 ≈ 0,13 s/token`.
+Bốn mẫu lỗi cho 7,6 / 10,2 / 9,1 / 7,9 token/s — nhất quán.
+
+Hệ quả: **một lượt 1024 token mất ~114 s.** Mốc 30 s của vòng Docker loại hẳn cách này, và kết luận
+đó không cần phép quy chiếu T4→A30 nào. (Đáng để ghi: 9 token/s thấp hơn ~4 lần trần băng thông của
+chính T4, nên nút cổ chai có lẽ là overhead mỗi token chứ không phải băng thông — nếu đúng vậy thì
+A30 sẽ **không** cứu được nhiều như tỉ lệ 2,9× gợi ý. Chưa đo, chưa kết luận.)
 
 ## Vì sao có V2
 
@@ -18,29 +42,54 @@ Mục tiêu V2: **tối đa hoá điểm**, lấy đủ bài học của `local_
 |---|---|---|---|
 | `MAX_CONTEXT` | 4096 | **12288** | 12288 |
 | Prompt tool | nén + route từng tool | **nguyên catalogue** | nguyên catalogue |
-| LLM | Qwen3-4B-**Instruct** | **Qwen3-4B-Thinking-2507** | Qwen3.5-4B |
-| Thinking | tắt | **bật** | bật (512 token) |
-| `MAX_NEW_TOKENS` | 192 | **1024** | 1024 |
+| LLM | Qwen3-4B-Instruct-2507 | Qwen3-4B-Instruct-2507 | Qwen3.5-4B |
+| Thinking | tắt | tắt *(đã thử bật, xem dưới)* | bật (512 token) |
+| `MAX_NEW_TOKENS` | 192 | **256** | 1024 |
 | LLM trên GPU | 1 GPU | 1 GPU (cuda:0), ASR ở cuda:1 | CPU |
 | Tool call văn xuôi | nộp 0 call (42 mẫu) | khôi phục được | — |
 | Hỏi thiếu thông tin | **kết thúc mẫu ngay** | **tiếp tục làm việc** | — |
 | ID trong write arg | tin model | **chặn nếu không truy được** | — |
 | `context_limit` | giết cả run | chỉ hỏng 1 mẫu | — |
+| Đầu ra bị cắt 2 lần | làm lỗi cả mẫu | **`invalid_output`, giữ call đã làm** | — |
+| Cổng dừng run | 3 lỗi liên tiếp, mọi split | 3 trên `train`, **10** trên public_test | — |
 | Gate preflight | 1 mẫu `step_limit` là chặn | chặn khi lỗi >20% | — |
 | `local_train_score` | `null` | **có số thật, 50 mẫu** | — |
 | Chuẩn hoá số nói | không có | **có** (`NORMALISE_NUMBERS`) | — |
 | Nạp adapter fine-tune | không có đường | **`ADAPTER_DIR`, merge vào trọng số** | — |
 
-### Model: vì sao đổi sang bản Thinking
+### ⚠️ Model: đã thử bản Thinking và đã bỏ
 
-`Qwen3-4B-Instruct-2507` **không có chế độ thinking** — Qwen phát hành Instruct và Thinking thành hai
-checkpoint riêng, nên không thể bật bằng config. Bản Thinking có **cùng số tham số
-4.022.468.096**, cùng kiến trúc `qwen3` (36 lớp, full attention) nên phần tái dùng KV-cache vẫn đúng
-và tổng hệ thống vẫn 5.565.773.056 < 6B. Apache-2.0, tạo 2025-08-05 — trước hạn 26/10/2026.
+V2 ban đầu đổi sang `Qwen3-4B-Thinking-2507` với lập luận: cấu hình duy nhất có điểm tốt
+(`local_v1`, 22.52) chạy reasoning, còn `kaggle_v1` không reasoning và chỉ được 13.41. Đây là thay
+đổi duy nhất của V2 **không có số đo nào đứng sau**. V15 đo, và nó thất bại:
 
-Đây là bước gần nhất tới công thức 22.52 mà **không phải sửa kiến trúc**. Qwen3.5-4B (đúng bản đạt
-22.52) dùng linear attention (DeltaNet): `ToolModel` khẳng định `model_type == 'qwen3'` và phần crop
-KV-cache chỉ kiểm chứng cho full attention, nên để dành.
+```
+4/5 mẫu: InvalidDecision: LLM token limit reached; truncated action rejected
+          -> nộp 0 call
+205-301 s/mẫu
+```
+
+Bản Thinking tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>`. Nâng `MAX_NEW_TOKENS` lên
+1536 — đúng lời khuyên tôi từng viết ở cuối file này — làm **cả hai** vấn đề tệ hơn: cụt vẫn cụt mà
+mỗi lượt đắt thêm. Lời khuyên đó đã bị xoá.
+
+**Lý do quyết định không phải thời gian, mà là tính nhất quán với fine-tune.**
+[`scripts/train_sft.py`](../../scripts/train_sft.py) gắn cứng vào **Instruct-2507** vì quỹ đạo gold
+không có khối `<think>` nào. Adapter LoRA học trên trọng số Instruct không thể nạp lên trọng số
+Thinking. Fine-tune là hướng bắt buộc của dự án, nên inference phải chạy đúng checkpoint đó. Chạy
+Thinking lúc inference trong khi fine-tune Instruct là hai việc không ăn khớp nhau.
+
+**Đánh đổi phải nói thật:** bỏ reasoning là bỏ đúng cái thứ tương quan với điểm 22.52. Nhưng
+`local_v1` cho reasoning **512** token trên một model **hybrid** (Qwen3.5-4B) biết suy luận *ngắn*.
+`Qwen3-4B-Thinking-2507` là checkpoint chuyên suy luận: template luôn mở `<think>` nên
+`ENABLE_THINKING = False` **vô hiệu** với nó, và không có cách nào bảo nó suy luận ngắn. Hai thứ đó
+không thay thế được nhau, và cái có sẵn trong tầm tay là cái thứ hai.
+
+Nên V2 vẫn là **một thí nghiệm khác hẳn V1**, chỉ không khác ở chỗ model: context 12288 thay vì
+4096, nguyên catalogue thay vì route, cộng hai sửa đổi luồng làm việc dưới đây.
+
+Qwen3.5-4B (đúng bản đạt 22.52) dùng linear attention (DeltaNet): `ToolModel` khẳng định
+`model_type == 'qwen3'` và phần crop KV-cache chỉ kiểm chứng cho full attention, nên để dành.
 
 ### Hai thay đổi luồng làm việc — đều đo trên 1545 mẫu nhãn `train`
 
@@ -66,6 +115,21 @@ cũng không có trong context là ID bịa; thực thi nó làm sai `state_hash
 lệch hash). V2 từ chối call đó và bảo model đi đọc ID thật. **0 false positive trên 1545 mẫu.**
 
 Phụ: `MAX_STEPS = 8` đã đủ — mẫu gold cần nhiều call nhất là **6**, không mẫu nào cần hơn 8.
+
+**C. Đầu ra bị cắt không còn làm lỗi cả mẫu** *(thêm sau V15)*. Trước đây lần `InvalidDecision` thứ
+hai `raise` → `stop_reason='error'` → 3 mẫu liên tiếp giết cả run; V15 chết đúng kiểu đó ở mẫu 5/50.
+Giờ trả về `'invalid_output'` và **giữ nguyên các call đã thực hiện**: submission chỉ tốt lên hoặc
+giữ nguyên, không bao giờ xấu đi, vì `submission_value(env, …)` đã luôn được ghi trong khối
+`finally` kể cả khi mẫu lỗi. `'invalid_output'` vẫn tính là `failed`, nên điểm preflight không bị
+làm đẹp và cổng `failure_rate ≤ 20%` vẫn chặn nếu model không chịu ra tool call.
+
+Lời nhắc khi đầu ra chưa hợp lệ cũng được viết lại cho gắt hơn: *"chỉ một khối
+`<tool_call>…</tool_call>` duy nhất, không giải thích, không suy luận."*
+
+**D. Cổng 3-lỗi-liên-tiếp chỉ còn gắt trên `train`.** Trên `train` ta đang **đo**, nên dừng sớm là
+đúng — V15 dừng ở mẫu 5 và tiết kiệm quota. Trên `public_test` không có nhãn để học thêm điều gì
+giữa run, mà chết ở mẫu 400/634 sau 6 giờ là mất trắng phiên đó; giới hạn ở đó là **10**. OOM vẫn
+giết run ở mọi split, vì nó nghĩa là kế hoạch bộ nhớ sai.
 
 Đo bằng tokenizer trên 100 mẫu `train`, đúng dạng prompt của notebook:
 
@@ -126,17 +190,44 @@ container, không có cache nào ở đó.
 2. **Phiên 2**, chỉ khi điểm chấp nhận được: `SPLIT='public_test'`, `RUN_FULL=True`. 634 mẫu với
    prompt dài có thể vượt 12 giờ của Kaggle → dùng `RESUME_FROM` trỏ vào `kaggle_v2` của phiên trước.
 
-**Bộ nhớ một card, tính trước:** trọng số fp16 7.49 GiB + KV cache 12288 token 1.69 GiB
-(36 lớp × 8 KV head × 128 dim × 2 × 2 byte = 144 KiB/token) = **9.18 GiB trên 14.46 GiB trống**.
-Nên `SHARD_LLM_ACROSS_GPUS = False` là mặc định đúng; ASR ở `cuda:1`. Bật sharding lại là **đường
-chưa từng chạy được** — `cache.crop()` chưa bao giờ chạy với các lớp trải trên hai card.
+**Bộ nhớ một card** — phép tính này tôi đã viết sai **hai lần**, đây là bản có đo:
 
-**Nếu OOM:** hạ `MAX_NEW_TOKENS` xuống 768 trước (reasoning vẫn đủ chỗ), rồi mới hạ `MAX_CONTEXT`.
-Sàn là **9216**: dưới đó `MAX_CONTEXT − MAX_NEW_TOKENS` tụt xuống dưới 7783 và route chạy lại, là
-lúc điểm sụp. Đừng hạ `MAX_CONTEXT` về 4096 trong mọi trường hợp.
+| | GiB |
+|---|---|
+| trọng số fp16 | 7.49 |
+| KV cache 12288 token (36 lớp × 8 KV head × 128 dim × 2 × 2 byte = 144 KiB/token) | 1.69 |
+| workspace attention lúc prefill, **sau** vá GQA (đo trên Qwen3 thật, N=4096: 1792 MiB) | ~4 |
+| **tổng** | **~13.2 trên 14.46 trống** |
 
-**Nếu nhiều mẫu báo token limit / `InvalidDecision`:** reasoning dài hơn 1024 token. Nâng
-`MAX_NEW_TOKENS` lên 1536 — context 12288 vẫn đủ (12288 − 1536 = 10752 > 7783).
+Lần đầu tôi viết "một card không chứa nổi" mà không tính. Lần hai tôi viết 9.18 GiB và **bỏ sót
+dòng thứ ba** — chính dòng đã làm V14 OOM. Bài học đã ghi vào `EXPERIMENTS.md`: đừng viết một con số
+vào tài liệu nếu chưa tính nó.
+
+`SHARD_LLM_ACROSS_GPUS = False` là mặc định đúng, ASR ở `cuda:1`. Bật sharding lại là **đường chưa
+từng chạy được** — `cache.crop()` chưa bao giờ chạy với các lớp trải trên hai card — và nó **không**
+phải thứ chữa V14.
+
+**Vá GQA (bắt buộc, cell 9).** `transformers` bật `enable_gqa=True` mỗi khi `attention_mask is None`
+— đúng ca batch=1 không padding của ta — và comment trong code của nó nói làm vậy để *tránh* math
+kernel. Đo trên torch 2.11 thì ngược lại: `enable_gqa` **chính là** đường math kernel. V14 chết vì
+`32 × 9160² × 2 byte = 5.00 GiB`. Vá bằng cách buộc nó lặp KV head:
+
+```python
+from transformers.integrations import sdpa_attention as _sdpa
+_sdpa.use_gqa_in_sdpa = lambda *args, **kwargs: False
+```
+
+Đo trên Qwen3-4B thật: chưa vá 1657 → 5638 MiB khi N đi từ 2048 → 4096 (×3,4 ≈ N²); đã vá
+902 → 1792 MiB (×1,99, đúng N). Đã kiểm thêm ở pha **decode** (q_len=1, N=9160): `repeat_kv` còn
+**nhanh hơn** `enable_gqa` 3× và tốn ít bộ nhớ hơn, nên bản vá đúng ở cả hai pha, không chỉ prefill.
+
+**Nếu OOM:** hạ `MAX_CONTEXT`. Sàn là **8192**: dưới đó `MAX_CONTEXT − MAX_NEW_TOKENS` tụt xuống
+dưới 7783 và route chạy lại, là lúc điểm sụp. Đừng hạ `MAX_CONTEXT` về 4096 trong mọi trường hợp.
+
+**Nếu nhiều mẫu báo token limit / `InvalidDecision`:** *không* nâng `MAX_NEW_TOKENS` — V15 cho thấy
+đó là lối sai. Nguyên nhân là model đang trả lời dài dòng thay vì ra tool call. Xem
+`events.jsonl` → `invalid_decision` và `response` để biết nó viết gì. Từ V15, lần cụt thứ hai trả về
+`stop_reason = 'invalid_output'` và giữ các call đã thực hiện, thay vì làm lỗi cả mẫu.
 
 ## Cần tải về những file nào
 

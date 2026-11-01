@@ -182,8 +182,14 @@ cuối và `DONE` — phần giám sát giá trị nhất của mẫu.
 
 Trajectory của ta không có khối `<think>` nào. Template của `Qwen3-4B-Thinking-2507` mở khối reasoning
 **vô điều kiện** và checkpoint được post-train để luôn suy luận, nên SFT trên target không-reasoning
-là dạy nó dập đúng hành vi nó được huấn luyện. Template Instruct khớp dữ liệu chính xác. Nó cũng giữ
-Kaggle V2 (Thinking, zero-shot) và bản fine-tune là **hai thí nghiệm khác nhau thật sự**.
+là dạy nó dập đúng hành vi nó được huấn luyện. Template Instruct khớp dữ liệu chính xác.
+
+**Và ràng buộc này giờ quyết định luôn cả inference.** Kaggle V2 ban đầu chạy bản Thinking zero-shot;
+V15 đo thấy 4/5 mẫu nộp 0 call vì đầu ra bị cắt ở 1024 token, 205–301 s/mẫu. Quan trọng hơn: adapter
+LoRA học trên trọng số Instruct **không nạp lên trọng số Thinking được**, nên chạy Thinking lúc
+inference trong khi fine-tune Instruct là hai việc không ăn khớp. V2 giờ dùng cùng một checkpoint với
+`train_sft.py`, và sự khác biệt giữa hai thí nghiệm là **có/không có adapter** — đúng cái ta muốn cô
+lập (bước 4 của [`RUNBOOK.md`](RUNBOOK.md)).
 
 Đúng luật BTC: chỉ đọc `train` (split duy nhất có nhãn) — gán nhãn `public_test`/`private_test` để
 train hay tune là bị cấm; và code huấn luyện nằm trong repo vì BTC yêu cầu nộp kèm trong Docker.

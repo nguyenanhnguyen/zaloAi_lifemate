@@ -139,7 +139,12 @@ TRANSCRIPT_CACHE = Path('/kaggle/input/lifemate-transcripts/train_all.transcript
 |---|---|
 | **> 15** | Bản vá luồng có tác dụng. Đi tiếp bước 3. |
 | **8–15** | Khá hơn `local_v4` (5.50) nhưng chưa đủ. Vẫn đi tiếp bước 3 — fine-tune là đòn còn lại. |
-| **< 8** | Có gì hỏng. Đổi `ENABLE_THINKING = False`, `RUN_NAME = 'v2_nothink'`, chạy lại. Thinking là thay đổi duy nhất trong V2 không có phép đo nào bảo vệ. |
+| **< 8** | Có gì hỏng. Mở `preflight/metrics.jsonl` xem `stop_reason` nào chiếm đa số trước khi đổi bất cứ gì — đừng đổi cấu hình theo cảm giác. |
+
+> **Đã làm xong một nhánh của bảng này.** Thinking từng là thay đổi duy nhất của V2 không có phép đo
+> bảo vệ. Kaggle V15 đo rồi: 4/5 mẫu nộp 0 call vì đầu ra bị cắt, 205–301 s/mẫu. V2 giờ chạy
+> `Qwen3-4B-Instruct-2507`, `ENABLE_THINKING = False`, `MAX_NEW_TOKENS = 256` — cũng là checkpoint
+> mà fine-tune bắt buộc phải dùng. Chi tiết: `results/kaggle_v2/README.md`.
 
 ### Bước 2b — kiểm ngân sách thời gian *(2 phút, đừng bỏ)*
 
@@ -154,6 +159,11 @@ Docker**, nên bỏ qua bước này là nhận rủi ro: điểm public test đ
 về 0.
 
 Quy đổi T4 → A30 theo băng thông: `A30 ≈ T4 × 933/320 ≈ 2.9 lần nhanh hơn`.
+
+> ⚠️ **Đừng tin tỉ lệ 2.9× quá nhiều.** V15 đo được **~9 token/s trên T4** ở context ~9k, thấp hơn
+> ~4 lần trần băng thông của chính T4. Nếu nút cổ chai là overhead mỗi token chứ không phải băng
+> thông — mà con số đó gợi ý đúng như vậy — thì A30 nhanh hơn ít hơn 2.9×. Đây là rủi ro lớn nhất
+> còn lại cho vòng Docker, và nó **chưa được đo**.
 
 | Trung vị `llm_seconds` trên T4 | Dự phóng A30 | |
 |---|---|---|
