@@ -76,5 +76,18 @@ else:
     print(f"OK   normalizer notebook == src/text_norm.py trên {len(lines)} transcript thật "
           f"({changed} dòng bị đổi, {changed/len(lines):.1%})")
 
+# 5) tên dùng trước khi gán — lớp lỗi chỉ lộ ra sau khi đã tải 13 GiB model trên Kaggle
+import subprocess  # noqa: E402
+
+order = subprocess.run([sys.executable, "-X", "utf8",
+                        str(ROOT / "scripts/diag/check_notebook_order.py"),
+                        str(ROOT / "notebook/lifemate_kaggle_v2.ipynb")],
+                       capture_output=True, text=True, encoding="utf-8")
+if order.returncode:
+    print("FAIL thứ tự định nghĩa:\n" + (order.stdout or order.stderr).rstrip())
+    fail += 1
+else:
+    print("OK   không có tên nào dùng trước khi gán")
+
 print("\n" + ("TẤT CẢ ĐẠT" if not fail else f"{fail} HẠNG MỤC LỖI"))
 sys.exit(1 if fail else 0)
