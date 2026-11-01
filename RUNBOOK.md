@@ -9,6 +9,65 @@ ghi), nên hai can thiệp đáng giá là bản vá luồng của V2 và fine-t
 
 ---
 
+## Mỗi bước làm Ở ĐÂU
+
+| Bước | Máy | Mở cái gì |
+|---|---|---|
+| 0 | **laptop** | terminal |
+| 1 | Kaggle | *Datasets* → *New Dataset* (làm 2 lần) |
+| 2 | Kaggle · **session A** | notebook **`lifemate_kaggle_v2.ipynb`** (import vào) |
+| 2b | **laptop** | file `metrics.jsonl` tải về |
+| 3 | Kaggle · **session B** | notebook **mới, rỗng** — 1 cell, KHÔNG phải notebook V2 |
+| 4 | Kaggle · session A | **cùng** notebook V2, sửa cell 1, chạy lại |
+| 5 | Kaggle · session A | **cùng** notebook V2, sửa cell 1, chạy lại |
+| 6 | **laptop** | `results/<run>/` + git |
+
+Chỉ có **hai** notebook trong cả quy trình: notebook V2 (bước 2, 4, 5 — cùng một file, khác cấu hình
+cell 1) và một notebook rỗng chỉ để huấn luyện (bước 3). Laptop không chạy GPU gì nữa từ bước 2.
+
+Dòng dữ liệu đi qua các bước:
+
+```
+laptop: 4 file jsonl ──> Bước 1: 2 Kaggle Dataset
+                              │
+         ┌────────────────────┴────────────────────┐
+         ▼ lifemate-transcripts                    ▼ lifemate-sft
+   Bước 2 (notebook V2)                      Bước 3 (notebook rỗng)
+   -> điểm mốc zero-shot                     -> lora_v1 trong /kaggle/working
+         │                                          │
+         │                 Notebook Output          │
+         └──────────────> Bước 4 (notebook V2) <────┘
+                           -> điểm có adapter
+                                 │
+                       cấu hình thắng
+                                 ▼
+                          Bước 5 (notebook V2)
+                          -> submission.jsonl
+                                 ▼
+                    laptop: tải về -> nộp lên Zalo
+```
+
+---
+
+## ⚠️ Hai điều phải biết trước khi bấm Run
+
+**1. Chạy dài thì KHÔNG để session tương tác.** Kaggle giết session tương tác khi trình duyệt ngắt
+hoặc để không một lúc. Mọi bước từ 2 trở đi đều dài hàng giờ, nên bấm ***Save Version* → *Save & Run
+All (Commit)*** để nó chạy ngầm, rồi đóng máy đi ngủ. Session tương tác chỉ dùng cho smoke test.
+
+**2. Quota GPU Kaggle là 30 giờ/tuần.** Kế hoạch này tiêu 15–23 giờ, nên **không có chỗ cho sai sót
+lặp lại**. Trước mỗi lần chạy dài, smoke test bằng session tương tác:
+
+```python
+PREFLIGHT_SAMPLES = 2        # bước 2 và 4
+MAX_SAMPLES = 2              # bước 5
+```
+
+Mất ~15 phút, xác nhận chạy hết luồng và in ra điểm. Xong rồi mới đặt lại 50 / `None` và *Save & Run
+All*. 15 phút này bảo vệ 3 giờ.
+
+---
+
 ## Bước 0 — Kiểm tra file ở laptop *(1 phút)*
 
 ```bash
@@ -44,10 +103,14 @@ Phải thấy 4 file: 0.7 MB · 0.3 MB · 24.1 MB · 5.1 MB. Thiếu file nào t
 
 ## Bước 2 — Phiên 1: preflight **zero-shot** *(≈2–3 giờ)*
 
+**Ở đâu:** Kaggle, notebook `lifemate_kaggle_v2.ipynb` import từ laptop. Đây cũng là notebook của
+bước 4 và 5 — giữ lại, đừng tạo mới mỗi lần.
+
 Đây là mốc so sánh. Chạy **không** adapter là cố ý: không có mốc này thì sau không biết fine-tune
 đóng góp bao nhiêu, lại gộp confound như V1.
 
-1. *New Notebook* → *File* → *Import Notebook* → `notebook/lifemate_kaggle_v2.ipynb`
+1. Kaggle → *Code* → *New Notebook* → *File* → *Import Notebook* → chọn
+   `notebook/lifemate_kaggle_v2.ipynb` trên laptop
 2. Panel phải → **Accelerator: GPU T4 × 2** · **Internet: On**
 3. *Add Data*: dataset thi đấu của BTC **và** `lifemate-transcripts`
 4. Sửa **cell 1** (chỉ 5 dòng này):
@@ -80,6 +143,12 @@ TRANSCRIPT_CACHE = Path('/kaggle/input/lifemate-transcripts/train_all.transcript
 
 ### Bước 2b — kiểm ngân sách thời gian *(2 phút, đừng bỏ)*
 
+**Ở đâu:** laptop. Tải `v2_base/preflight/metrics.jsonl` từ tab *Output* của Kaggle về, rồi:
+
+```bash
+python -c "import json,statistics as s; print(s.median([json.loads(l)['llm_seconds'] for l in open('metrics.jsonl',encoding='utf-8')]))"
+```
+
 Lấy trung vị `llm_seconds` trong `metrics.jsonl`. Giới hạn **30s/mẫu chỉ được thực thi ở vòng
 Docker**, nên bỏ qua bước này là nhận rủi ro: điểm public test đẹp mà vòng Docker timeout, mọi mẫu
 về 0.
@@ -98,9 +167,12 @@ Quy đổi T4 → A30 theo băng thông: `A30 ≈ T4 × 933/320 ≈ 2.9 lần nh
 
 ## Bước 3 — Fine-tune *(≈3–5 giờ, chạy SONG SONG với bước 2 ở session khác)*
 
-1. *New Notebook* → **GPU T4 × 2** · **Internet: On** (cần tải base model 7.5 GiB)
-2. *Add Data*: `lifemate-sft`
-3. Một cell, chạy:
+**Ở đâu:** Kaggle, một notebook **mới và rỗng** — *không* phải notebook V2. Nó chỉ có đúng một cell.
+
+1. Kaggle → *Code* → *New Notebook* (để nguyên, không import gì)
+2. Panel phải → **GPU T4 × 2** · **Internet: On** (cần tải base model 7.5 GiB từ Hugging Face)
+3. *Add Data* → `lifemate-sft`
+4. Dán **một cell** này rồi *Save Version* → *Save & Run All*:
 
 ```python
 !pip install -q peft bitsandbytes
@@ -129,9 +201,11 @@ cần tải về rồi upload lại.
 
 ## Bước 4 — Phiên 1b: preflight **có adapter** *(≈2–3 giờ)*
 
+**Ở đâu:** Kaggle, **mở lại chính notebook của bước 2**. Không import lại, không tạo mới.
+
 Cùng 50 mẫu, cùng `SEED = 42`, chỉ khác adapter → hiệu số chính là đóng góp của fine-tune.
 
-1. Mở lại notebook bước 2 → *Add Data* → tab *Notebook Output* → chọn notebook bước 3
+1. Mở notebook bước 2 → *Add Data* → tab *Your Work* / *Notebook Output* → chọn notebook bước 3
 2. Sửa cell 1:
 
 ```python
@@ -153,6 +227,8 @@ cấu hình `v2_base` — và ghi kết quả âm đó vào `EXPERIMENTS.md`, đ
 
 ## Bước 5 — Phiên 2: chạy thật `public_test` *(≈8–12 giờ)*
 
+**Ở đâu:** Kaggle, vẫn **chính notebook của bước 2/4**.
+
 Chỉ làm sau khi bước 2 (hoặc 4) cho điểm chấp nhận được. Lấy **cấu hình thắng** ở trên, rồi sửa:
 
 ```python
@@ -172,6 +248,8 @@ Nó đọc tiếp những mẫu đã xong, không chạy lại.
 ---
 
 ## Bước 6 — Lưu trữ *(15 phút, đừng bỏ)*
+
+**Ở đâu:** laptop.
 
 Tạo `results/<tên-run>/` cho mỗi lần chạy có kết quả, đặt file tải về vào đó, và viết **một** file
 `README.md` ghi: cấu hình, số đo, điểm leaderboard, bài học. Đó là cách duy nhất để lần sau không
