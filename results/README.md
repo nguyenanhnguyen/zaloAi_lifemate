@@ -22,7 +22,7 @@ Hai dãy số độc lập nhau. Số chỉ tăng; một cấu hình đã đổi
 | [local_v3](local_v3/) | PhoWhisper-large + Qwen3-4B 4-bit, prompt 1800 | `public_test` 5 và 10 mẫu | — | Hai lần dò để đo tốc độ, không phải bài nộp |
 | [local_v4](local_v4/) | như v3 + ASR tách pha trên GPU | `train` 100 mẫu | **5.50** | Lần đầu đo F1 thật. **Tìm ra router prompt bỏ mất tool cần dùng ở 76% mẫu** — đọc trước khi cắt prompt lần nữa |
 | [kaggle_v1](kaggle_v1/) | PhoWhisper-large + Qwen3-4B | `public_test` 634/634 | **13.41** | **Thấp hơn local_v1 9 điểm.** 42 mẫu nộp 0 call + 33 failed = 11.8 điểm mất trắng, đủ giải thích cả khoảng cách |
-| [kaggle_v2](kaggle_v2/) | PhoWhisper-large + Qwen3-4B bf16, **không route prompt** | *chờ chạy* | — | Notebook đã sẵn sàng: context 12288, LLM chia 2 GPU, vá parser. Đọc `.md` trước khi chạy |
+| [kaggle_v2](kaggle_v2/) | PhoWhisper-large + Qwen3-4B bf16, **không route prompt** | *chờ chạy* | — | Notebook đã sẵn sàng: context 12288, LLM 1 GPU + ASR GPU 2, vá parser. Đọc `.md` trước khi chạy |
 
 Lịch sử suy luận đầy đủ, gồm cả những hướng đã thử và bị loại, nằm trong
 [`../EXPERIMENTS.md`](../EXPERIMENTS.md). Thư mục này giữ **số đo và file**, `EXPERIMENTS.md` giữ

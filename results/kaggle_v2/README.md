@@ -21,7 +21,7 @@ Mục tiêu V2: **tối đa hoá điểm**, lấy đủ bài học của `local_
 | LLM | Qwen3-4B-**Instruct** | **Qwen3-4B-Thinking-2507** | Qwen3.5-4B |
 | Thinking | tắt | **bật** | bật (512 token) |
 | `MAX_NEW_TOKENS` | 192 | **1024** | 1024 |
-| LLM trên GPU | 1 GPU | **chia cả 2 T4** | CPU |
+| LLM trên GPU | 1 GPU | 1 GPU (cuda:0), ASR ở cuda:1 | CPU |
 | Tool call văn xuôi | nộp 0 call (42 mẫu) | khôi phục được | — |
 | Hỏi thiếu thông tin | **kết thúc mẫu ngay** | **tiếp tục làm việc** | — |
 | ID trong write arg | tin model | **chặn nếu không truy được** | — |
@@ -125,6 +125,11 @@ container, không có cache nào ở đó.
    `PREFLIGHT TRAIN SCORE = ...`. **So với 5.50 của `local_v4`.**
 2. **Phiên 2**, chỉ khi điểm chấp nhận được: `SPLIT='public_test'`, `RUN_FULL=True`. 634 mẫu với
    prompt dài có thể vượt 12 giờ của Kaggle → dùng `RESUME_FROM` trỏ vào `kaggle_v2` của phiên trước.
+
+**Bộ nhớ một card, tính trước:** trọng số fp16 7.49 GiB + KV cache 12288 token 1.69 GiB
+(36 lớp × 8 KV head × 128 dim × 2 × 2 byte = 144 KiB/token) = **9.18 GiB trên 14.46 GiB trống**.
+Nên `SHARD_LLM_ACROSS_GPUS = False` là mặc định đúng; ASR ở `cuda:1`. Bật sharding lại là **đường
+chưa từng chạy được** — `cache.crop()` chưa bao giờ chạy với các lớp trải trên hai card.
 
 **Nếu OOM:** hạ `MAX_NEW_TOKENS` xuống 768 trước (reasoning vẫn đủ chỗ), rồi mới hạ `MAX_CONTEXT`.
 Sàn là **9216**: dưới đó `MAX_CONTEXT − MAX_NEW_TOKENS` tụt xuống dưới 7783 và route chạy lại, là
