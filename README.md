@@ -19,6 +19,13 @@ mô tả các bước phải bấm tay trên Kaggle và đọc số nào để r
 - `scripts/build_sft.py` + `scripts/train_sft.py`: dựng dataset SFT từ nhãn `train` và fine-tune
   QLoRA. **Phải nằm trong repo** vì BTC yêu cầu nộp code huấn luyện kèm Docker.
 - `scripts/asr_bench.py`: đo WER thật trên `train` theo nhiều chiến lược decode, không tốn lượt nộp.
+- `scripts/diag/read_run.py`: đọc một thư mục kết quả (local hoặc tải từ Kaggle) và in ra đúng những
+  con số để ra quyết định — điểm, **vì sao từng mẫu được 0**, tỉ lệ `state_hash` khớp, `stop_reason`,
+  thời gian theo pha, token/s, và **điểm nếu áp mốc 30 s** (ước lượng vòng Docker).
+- `scripts/diag/verify_notebook.py` + `check_notebook_order.py`: kiểm notebook Kaggle **không cần
+  GPU** — cú pháp, dùng-trước-khi-gán, và normalizer trong notebook phải cho đúng kết quả như
+  `src/text_norm.py`. Chạy hai cái này trước mỗi lần upload; chúng ra đời sau 5 lần chạy Kaggle thất
+  bại vì lỗi chỉ lộ sau khi đã tải 13 GiB trọng số.
 - `src/pipeline.py`: lọc tool được phép, gọi tool từng bước, lấy call log và state hash thật.
 - `docs/context.txt`, `docs/evaluation.png`: bản ghi quy định và công thức chấm điểm của BTC.
 - `notebook/lifemate_kaggle_v2.ipynb`: pipeline tương đương để chạy trên Kaggle GPU (2x T4) — bản

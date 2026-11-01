@@ -125,13 +125,22 @@ TRANSCRIPT_CACHE = Path('/kaggle/input/lifemate-transcripts/train_all.transcript
 
 5. *Run All*.
 
-**Đọc về 3 thứ:**
+**Tải về rồi đọc bằng một lệnh.** Tab *Output* → `lifemate/v2_base/preflight/`, lấy
+`summary.json`, `metrics.jsonl`, `events.jsonl` (cả ba, `events.jsonl` là cái duy nhất đo được
+token/s và cho biết lượt nào bị cắt), rồi:
 
-| Ở đâu | Là gì |
-|---|---|
-| Log, dòng `PREFLIGHT TRAIN SCORE = ...` | **điểm thật trên 50 mẫu có nhãn** |
-| `v2_base/preflight/summary.json` | cùng số đó, dạng máy đọc |
-| `v2_base/preflight/metrics.jsonl` → cột `llm_seconds` | **ngân sách thời gian** (xem bước 2b) |
+```bash
+python scripts/diag/read_run.py <thư mục preflight đã tải>
+```
+
+Nó in: điểm và **vì sao từng mẫu được 0**, tỉ lệ `state_hash` khớp, phân bố `stop_reason`,
+thời gian theo pha, thông lượng token/s, đỉnh bộ nhớ, và quan trọng nhất — **điểm nếu áp mốc 30 s**,
+là ước lượng cho vòng Docker. Khỏi mở tay từng file.
+
+> **Một điểm dễ hiểu sai:** trên T4 notebook đặt `DEADLINE_SECONDS = 600`, nên
+> `PREFLIGHT TRAIN SCORE` là điểm **chất lượng thuần**, chưa áp mốc 30 s. Đó đúng là con số để so
+> với 22.52 (vòng public test ta tự chạy, tự nộp JSONL nên không bị ép 30 s). Nhưng vòng Docker
+> **có** ép, và `read_run.py` in riêng con số đó.
 
 **Điểm nghĩa là gì:**
 
