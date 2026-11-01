@@ -28,6 +28,8 @@ Mục tiêu V2: **tối đa hoá điểm**, lấy đủ bài học của `local_
 | `context_limit` | giết cả run | chỉ hỏng 1 mẫu | — |
 | Gate preflight | 1 mẫu `step_limit` là chặn | chặn khi lỗi >20% | — |
 | `local_train_score` | `null` | **có số thật, 50 mẫu** | — |
+| Chuẩn hoá số nói | không có | **có** (`NORMALISE_NUMBERS`) | — |
+| Nạp adapter fine-tune | không có đường | **`ADAPTER_DIR`, merge vào trọng số** | — |
 
 ### Model: vì sao đổi sang bản Thinking
 
@@ -72,6 +74,27 @@ limit = 12288 - 256 = 12032
 prompt lượt 1, schema nguyên bản:  trung vị 5945   p95 7666   max 7783   -> vừa
 số mẫu phải route:                 0/100
 ```
+
+## Nạp model fine-tune
+
+```python
+ADAPTER_DIR = Path('/kaggle/input/lifemate-lora/lora_v1')
+NORMALISE_NUMBERS = True      # BẮT BUỘC khi dùng ADAPTER_DIR
+```
+
+Adapter được **merge vào trọng số** → còn lại một model Qwen3 thường: số tham số không đổi (luật
+<6B nguyên vẹn) và phần crop KV-cache vẫn đúng. Notebook tự thêm `peft` vào lệnh cài khi
+`ADAPTER_DIR` khác `None`. `manifest.json` ghi cả đường dẫn adapter và `adapter_config.json` nên lần
+chạy vẫn tái lập được.
+
+⚠️ **`NORMALISE_NUMBERS` không phải tuỳ chọn khi fine-tune.** Dataset SFT dựng từ transcript **đã
+chuẩn hoá** ("xe 4 chỗ"), nên model mong đợi đầu vào đã chuẩn hoá. Tắt đi là lệch train/inference.
+Và vì vậy normalizer **bị đóng băng**: sửa `src/text_norm.py` thì phải build lại dataset SFT, nếu
+không adapter sẽ lệch với thứ nó nhận lúc chạy.
+
+Bản sao normalizer trong notebook là **nguyên văn** `src/text_norm.py` (Kaggle không import được từ
+repo). Đã kiểm: khớp tuyệt đối trên 236 transcript thô của `local_v4` (35.2% dòng bị đổi) và trên
+1933 transcript `public_test` đã chuẩn hoá (0 dòng đổi, tức idempotent). **Sửa thì sửa cả hai chỗ.**
 
 ## Ghép với laptop: ASR chạy sẵn ở nhà
 
