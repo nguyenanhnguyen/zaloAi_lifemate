@@ -22,7 +22,7 @@ mô tả các bước phải bấm tay trên Kaggle và đọc số nào để r
 - `src/pipeline.py`: lọc tool được phép, gọi tool từng bước, lấy call log và state hash thật.
 - `docs/context.txt`, `docs/evaluation.png`: bản ghi quy định và công thức chấm điểm của BTC.
 - `notebook/lifemate_kaggle_v2.ipynb`: pipeline tương đương để chạy trên Kaggle GPU (2x T4) — bản
-  **đang dùng**, gửi cả catalogue tool với `MAX_CONTEXT 12288` và chia LLM lên 2 GPU. Dùng khi cần
+  **đang dùng**, gửi cả catalogue tool với `MAX_CONTEXT 12288`, LLM ở cuda:0 và ASR ở cuda:1. Dùng khi cần
   chạy đủ `public_test`/`private_test`. `lifemate_kaggle_v1.ipynb` giữ lại để đối chiếu, **không
   chạy nữa**: nó route prompt và mất điểm nặng (xem `results/kaggle_v2/README.md`).
 - `EXPERIMENTS.md`: lịch sử suy luận — vì sao đổi model/pipeline, hướng nào đã thử và bị loại. Đọc

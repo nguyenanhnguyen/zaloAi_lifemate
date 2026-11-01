@@ -145,7 +145,7 @@ vào danh sách chức danh (16/16 unit case pass).
 
 ---
 
-## kaggle_v2 – gửi cả catalogue tool, chia LLM lên 2 GPU (2026-10-31)
+## kaggle_v2 – gửi cả catalogue tool, không route prompt (2026-10-31)
 
 Notebook mới `notebook/lifemate_kaggle_v2.ipynb`. Chi tiết cấu hình, cách chạy 2 phiên và danh sách
 file cần tải: [`results/kaggle_v2/README.md`](results/kaggle_v2/README.md).
@@ -155,8 +155,17 @@ file cần tải: [`results/kaggle_v2/README.md`](results/kaggle_v2/README.md).
 số token nên không thấy trực tiếp, nhưng phép tính thì rõ, và `asked_missing 109/634` (17%) là đúng
 dấu vết đó — nhẹ hơn 43% của local v4 vì ngân sách gấp đôi.
 
-Thay đổi: context 4096 → **12288**, bỏ hẳn route, **chia LLM lên cả 2 T4** (một card không chứa nổi
-context đó), port bản vá parser văn xuôi (42 mẫu nộp 0 call ở V1), `context_limit` không còn giết cả
+> ⚠️ **Khẳng định sai, đã sửa (2026-11-01).** Đoạn dưới nói V2 "chia LLM lên cả 2 T4 (một card không
+> chứa nổi context đó)". Tôi khẳng định mà **không hề tính**. Phép tính: trọng số fp16 7.49 GiB + KV
+> cache 12288 token 1.69 GiB (36 lớp × 8 KV head × 128 dim × 2 × 2 byte = **144 KiB/token**) =
+> **9.18 GiB trên 14.46 GiB trống** — một card dư 5.28 GiB. Sharding không mang lại gì, lại là khác
+> biệt cấu trúc **duy nhất** so với mọi cấu hình đã chạy được (V1 và laptop đều 1 GPU) trong khi
+> `cache.crop()` chưa bao giờ chạy với các lớp trải trên hai card, và lần chạy Kaggle đầu tiên chết
+> đúng trong `model.generate()`. `SHARD_LLM_ACROSS_GPUS` giờ mặc định `False`; GPU thứ hai vẫn dùng
+> cho ASR. Bài học: **đừng viết một con số vào tài liệu nếu chưa tính nó.**
+
+Thay đổi: context 4096 → **12288**, bỏ hẳn route, ~~chia LLM lên cả 2 T4 (một card không chứa nổi
+context đó)~~, port bản vá parser văn xuôi (42 mẫu nộp 0 call ở V1), `context_limit` không còn giết cả
 run, và gate preflight chặn theo **tỉ lệ** lỗi >20% thay vì chặn khi có **một** mẫu `step_limit` —
 V1 đặt gate đó sẽ chặn oan một lần chạy 10 tiếng.
 
