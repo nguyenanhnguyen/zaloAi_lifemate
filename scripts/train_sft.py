@@ -197,6 +197,17 @@ def main() -> None:
 
     # T4 (sm75) has no bfloat16 and no flash-attention, so fp16 compute and sdpa attention.
     bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
+    # At batch size 1 nothing is padded, so the mask is all ones and transformers drops it. With
+    # the mask gone, use_gqa_in_sdpa() says yes and SDPA is handed enable_gqa=True -- which only
+    # the flash and math backends accept. sm75 has no flash, so every attention call landed on
+    # math, which materialises the whole (1, 32, L, L) score matrix: 1.1 GiB at L=4340, 4.0 GiB
+    # at L=8192. That is what took out a 14.5 GiB card on the first step. Forcing the repeat_kv
+    # path instead costs one expanded K and V (64 MiB at L=8192) and lets the memory-efficient
+    # backend run. Left alone from sm80 up, where flash is available and is the faster path.
+    if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8:
+        from transformers.integrations import sdpa_attention
+        sdpa_attention.use_gqa_in_sdpa = lambda *_: False
+        print("sm75 hoặc cũ hơn: tắt enable_gqa để SDPA dùng được backend mem_efficient")
     dtype = torch.bfloat16 if bf16 else torch.float16
     quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype)
