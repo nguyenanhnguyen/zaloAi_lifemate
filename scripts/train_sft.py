@@ -17,8 +17,10 @@ inference comes from the organisers' ToolEnv. `encode()` recovers the assistant 
 growing message prefixes and diffing, and refuses to run if the template turns out not to be
 prefix-stable, because a silently wrong mask trains a silently wrong model.
 
-    # Kaggle, 2x T4:
-    pip install -q peft bitsandbytes
+    # Kaggle, 2x T4. Ghim transformers đúng bản notebook suy luận dùng: huấn luyện và suy
+    # luận trên hai bản thư viện khác nhau là một khác biệt không ai kiểm soát, và bản mới
+    # hơn của Kaggle đã bỏ cả warmup_ratio lẫn group_by_length khỏi TrainingArguments.
+    pip install -q 'transformers==5.13.0' 'accelerate>=1.10,<2' peft bitsandbytes
     python scripts/train_sft.py --train sft.train.jsonl --eval sft.eval.jsonl --out lora_v1
 
     # mask check only, no GPU and no peft needed:
@@ -240,7 +242,9 @@ def main() -> None:
             seed=args.seed,
             data_seed=args.seed,
             remove_unused_columns=False,
-            group_by_length=False,
+            # group_by_length đã bị bỏ khỏi TrainingArguments ở transformers 5.x, và ở
+            # per_device_train_batch_size=1 thì nó vốn không làm gì: không có batch để gom
+            # theo độ dài. Bỏ hẳn thay vì đặt điều kiện theo phiên bản.
             dataloader_num_workers=0,
         ),
         train_dataset=train_set,
