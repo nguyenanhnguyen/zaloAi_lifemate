@@ -38,6 +38,40 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 IGNORE = -100
 QUERY_BLOCK = 1024
+LOSS_CHUNK = 1024
+
+
+def chunked_cross_entropy(head, hidden, labels, chunk: int = LOSS_CHUNK):
+    """Sum of the token losses, without ever holding logits for the whole sequence.
+
+    `hidden` is (B, L, H) straight from the transformer body and `labels` is (B, L) already
+    shifted; both are sliced into chunks of `chunk` positions, and each chunk's lm_head is
+    wrapped in gradient checkpointing so its logits are recomputed in the backward pass
+    instead of being kept.
+
+    The vocabulary is 151936 wide, so the full-sequence version costs, for one 6133-token
+    sample: logits in fp16 1.74 GiB, the fp32 copy cross-entropy upcasts to 3.47 GiB, a
+    second fp32 copy from accelerate's convert_to_fp32 wrapper 3.47 GiB, and the gradient
+    3.47 GiB. Trainer reads only `outputs.loss`, so three of those four are pure waste --
+    and the gradient is what took out GPU 0 once attention stopped being the bottleneck.
+    Per chunk the same figures are 311 MiB and 622 MiB, one chunk live at a time.
+    """
+    import torch
+    from torch.utils.checkpoint import checkpoint
+
+    def piece(block, target):
+        logits = head(block).float()
+        return torch.nn.functional.cross_entropy(
+            logits.reshape(-1, logits.shape[-1]), target.reshape(-1),
+            ignore_index=IGNORE, reduction="sum")
+
+    total = None
+    for start in range(0, hidden.shape[1], chunk):
+        stop = min(start + chunk, hidden.shape[1])
+        part = checkpoint(piece, hidden[:, start:stop], labels[:, start:stop],
+                          use_reentrant=False)
+        total = part if total is None else total + part
+    return total
 
 
 def block_attention_forward(module, query, key, value, attention_mask,
@@ -290,7 +324,34 @@ def main() -> None:
     model.enable_input_require_grads()
     model.print_trainable_parameters()
 
-    trainer = Trainer(
+    class ChunkedLossTrainer(Trainer):
+        """Runs the body, then the loss in chunks; never calls the full model's forward.
+
+        Going through the top-level forward is what produces the whole-sequence logits and
+        accelerate's fp32 copy of them. Calling the body directly skips both, at the cost of
+        applying autocast here by hand -- that wrapper is where it came from.
+        """
+
+        def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+            causal = model.get_base_model() if hasattr(model, "get_base_model") else model
+            if not hasattr(causal, "lm_head"):
+                raise RuntimeError(f"không tìm thấy lm_head trên {type(causal).__name__}")
+            labels = inputs["labels"][:, 1:]
+            with torch.autocast("cuda", dtype=dtype, enabled=torch.cuda.is_available()):
+                hidden = causal.model(input_ids=inputs["input_ids"],
+                                      attention_mask=inputs.get("attention_mask")).last_hidden_state
+                total = chunked_cross_entropy(causal.lm_head, hidden[:, :-1], labels)
+            # Mirrors ForCausalLMLoss: a sum divided by the token count of the whole
+            # accumulation window, so short and long samples carry their true weight. When
+            # Trainer withholds that count it divides by grad_accum itself, and dividing by
+            # the local count here is then the matching halves of the same normalisation.
+            if num_items_in_batch is None:
+                loss = total / (labels != IGNORE).sum().clamp(min=1)
+            else:
+                loss = total / num_items_in_batch
+            return (loss, {"loss": loss}) if return_outputs else loss
+
+    trainer = ChunkedLossTrainer(
         model=model,
         args=TrainingArguments(
             output_dir=args.out,
@@ -305,6 +366,9 @@ def main() -> None:
             warmup_ratio=0.03,
             logging_steps=10,
             eval_strategy="epoch" if eval_set else "no",
+            # compute_loss returns no logits, and eval only needs eval_loss to pick a
+            # checkpoint; without this Trainer would try to collect predictions it cannot get.
+            prediction_loss_only=True,
             save_strategy="epoch",
             save_total_limit=2,
             bf16=bf16,
@@ -323,6 +387,11 @@ def main() -> None:
         eval_dataset=eval_set,
         data_collator=Collator(tokenizer.pad_token_id or tokenizer.eos_token_id),
     )
+    # Trainer skips its own divide-by-grad_accum exactly when this flag is set and it has a
+    # token count to hand us. It normally infers the flag from the model's forward signature,
+    # which our compute_loss no longer calls -- so pin it, or the loss gets normalised twice
+    # and the effective learning rate is silently off by a factor of grad_accum.
+    trainer.model_accepts_loss_kwargs = True
     import contextlib
     from torch.nn.attention import SDPBackend, sdpa_kernel
     attention = sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]) if old_gpu else contextlib.nullcontext()
