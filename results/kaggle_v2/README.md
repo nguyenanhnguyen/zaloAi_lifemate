@@ -12,47 +12,62 @@ Notebook: [`notebook/lifemate_kaggle_v2.ipynb`](../../notebook/lifemate_kaggle_v
 | 13 | 238 s | traceback bị cắt | — (không chẩn đoán được từ log) |
 | 14 | 227 s | `OutOfMemoryError` 5.00 GiB | `enable_gqa=True` của transformers là đường math kernel, O(N²) |
 | 15 | 1499 s | 4/5 mẫu `LLM token limit reached` | bản **Thinking** tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>` |
-| 16 | — | **chạy thông** | thời gian đã ổn; lộ ra chỗ mất điểm thật (xem mục riêng dưới) |
+| 16 | 1428 s | **chạy thông, 13.80** | thời gian đã ổn; chỗ mất điểm là độ chính xác tham số (mục dưới) |
 
 Từ V15 trở đi hạ tầng đã thông: model nạp xong, prefill ~9160 token chạy qua, 1 mẫu hoàn tất
 đúng (`train_0063`, 1 call, `done`). Những gì còn lại là chất lượng, không phải lỗi hệ thống.
 
-### V16: thời gian hết là vấn đề, và chỗ mất điểm thật lộ ra
+### V16: điểm 13.80 trên 50 mẫu train
 
-Đọc trên 7 mẫu đầu của `events.jsonl`. **Thời gian đã giải quyết:**
+`python scripts/diag/read_run.py <preflight>` trên đủ 50 bản ghi. **Thời gian đã giải quyết:**
 
 | | V1 (13.41) | V16 |
 |---|---|---|
-| trung vị/mẫu trên T4 | 30,6 s | **~17–19 s** |
-| đỉnh `cuda:0` | 12869 MiB | **~9100 MiB** (dư 5,7 GiB) |
-| quy đổi A30 (÷2,9) | ~10,5 s | **~6 s** |
+| trung vị/mẫu trên T4 | 30,6 s | **25,0 s** (p95 60,1 s, max 66,0 s) |
+| đỉnh `cuda:0` | 12869 MiB | **9520 MiB** (dư 5,3 GiB) |
+| quy đổi A30 (÷2,9) | ~10,5 s | **8,6 s** (p95 20,7 s) / giới hạn 30 s |
 
-Phép tính bộ nhớ "~13,2 GiB" của tôi ở trên vẫn **bi quan quá**: prefill thật chỉ ~6500 token
-(không phải 9160), nên đỉnh là ~9100 MiB. Dư thoải mái.
+Phép tính bộ nhớ "~13,2 GiB" của tôi ở trên vẫn **bi quan quá**: prefill thật ~5900 token trung vị
+(không phải 9160), nên đỉnh là 9520 MiB. Thông lượng **6,5 token/s**, và nó không đổi theo context →
+nghẽn là **overhead mỗi token**, không phải băng thông, đúng như nghi vấn ở V15. Giờ không còn quan
+trọng, vì đầu ra chỉ 31 token trung vị.
 
-Thông lượng vẫn ~8 token/s (`train_0080` lượt 8: 256 token / 31,4 s = 123 ms/token). Đáng chú ý:
-con số đó **không đổi** giữa context 6500 và 9160 → nghẽn là **overhead mỗi token**, không phải băng
-thông, đúng như nghi vấn ở V15. Nhưng giờ nó **không còn quan trọng**, vì đầu ra chỉ 15–35 token.
+⚠️ **Hai con số tôi viết trước đó từ 7 mẫu đầu đều sai, và sai theo hướng lạc quan**: "trung vị
+17–19 s" (thật: 25,0 s) và "điểm 0 trên cả 7 mẫu" (thật: 13.80 trên 50 mẫu, 16/50 khớp hash).
+7 mẫu đầu là một cụm xấu, không đại diện. Bài học ở `EXPERIMENTS.md`.
 
-**Và điểm là 0,00 trên cả 7 mẫu, `state_match` sai cả 7.** Nguyên nhân thì áp đảo và nhất quán:
+### Chỗ mất điểm thật: 34/50 mẫu lệch `state_hash`
 
-| mẫu | gold | ta nộp | **call write** | kết cục | model nói gì |
-|---|---|---|---|---|---|
-| `train_0015` | 4 | 3 | **0** | `asked_missing` | "Tôi không thể tìm thấy liên hệ…" |
-| `train_0063` | 1 | 1 | 1 | `done` (văn xuôi) | "Đã gửi tin nhắn…" — ASR sai nội dung |
-| `train_0066` | 1 | 2 | 1 | `done` (văn xuôi) | gọi `alarm.create`, gold có lẽ tool khác |
-| `train_0075` | 3 | 2 | **0** | `done` (văn xuôi) | **"Đã bật đèn phòng khách với độ sáng 50%"** |
-| `train_0080` | 3 | 6 | **0** | `step_limit` | liệt kê 6 loại hoá đơn rồi tóm tắt, **không trả** |
-| `train_0106` | 3 | 1 | **0** | `done` (văn xuôi) | **"sẽ đặt ô tô 4 chỗ…"** |
-| `train_0203` | — | — | **0** | (đang chạy) | `bill_payment.pay` bị từ chối thiếu `bill_id` |
+Phân loại trực tiếp từ `metrics.jsonl` + `events.jsonl` (`tool_end` đối chiếu `kind` trong catalogue):
 
-**5/7 mẫu kết thúc bằng `plain_final`. 4/7 không gọi một call `write` nào** trong khi gold có write.
-Model **đọc dữ liệu, rồi viết một câu khẳng định đã làm xong, mà chưa hề gọi tool làm việc đó.**
+| nhóm | số mẫu | nghĩa |
+|---|---|---|
+| **có write nhưng lệch hash** | **25** | gọi tool thay đổi dữ liệu, nhưng **sai thứ gì đó** |
+| không write nào | 9 | 8 mẫu đã đọc dữ liệu rồi dừng; 1 mẫu không làm gì |
+| khớp hash, khớp 0 call | 5 | hash đúng mà F1 = 0 |
+| `failed` | 3 | 2 `step_limit`, 1 `invalid_output` |
 
-Đây là **cùng một kết luận** với phân tách `state_hash` trên `local_v4` (48% mẫu gold có write mà ta
-không write; "chỗ nghẽn là hành vi, không phải nhận thức") — nhưng lần này trên dữ liệu hoàn toàn độc
-lập, ở **context 12288, không route**. Tức giả thuyết "model không thấy tool vì prompt bị cắt" đã bị
-loại: nó thấy tool, tìm đúng thiết bị, rồi **không bấm**.
+Trong 25 mẫu "có write nhưng sai", **16 mẫu khớp 0 call** dù gọi đúng họ tool. Ba ví dụ dựng lại từ
+`train.jsonl` (khoá `label.tool_calls`) cho ba lớp lỗi khác nhau:
+
+| mẫu | WER | gold | ta nộp | lớp lỗi |
+|---|---|---|---|---|
+| `train_0063` | 0,12 | `sms.send{contact_id:"c_10", content:"nhớ mang tài liệu"}` | `sms.send{contact_id:"c_01", content:"Giở mang tài liệu"}` | **sai ID + ASR**: tra `contacts.search` ra rỗng rồi vẫn tự điền `c_01` |
+| `train_0066` | 0,14 | `reminders.create` | `alarm.list` + `alarm.create` | **sai họ tool**: "nhắc mình" → reminders, không phải alarm |
+| `train_0354` | **0,00** | `calendar.list_events` → `ride_hailing.book{dropoff:"Sân bóng Chuyên Việt, 25 Núi Thành…", schedule_time:"…T14:30"}` | `ride_hailing.get_quotes` → `book{dropoff:"chỗ hẹn đá bóng", schedule_time:"…T15:00"}` | **không tra cứu referent**: bỏ `calendar.list_events`, nhét nguyên lời người dùng vào `dropoff`, nên giờ cũng lệch 30 phút |
+
+`train_0354` có **WER 0,00** — bản ghi âm hoàn hảo — mà vẫn 0 điểm. Nên đây không phải vấn đề ASR,
+cũng không phải "model không chịu hành động". Nó **hành động, nhưng điền tham số bằng lời người dùng
+thay vì bằng dữ liệu tra được**, và chọn sai họ tool khi hai họ nghe giống nhau.
+
+Ba lớp lỗi này là **đúng những gì SFT dạy**: mỗi quỹ đạo gold trong `sft.train.jsonl` đều có dạng
+`read → lấy ID từ kết quả → write → DONE` (đã kiểm: mẫu đầu gọi `calendar.list_events` rồi dùng
+`evt_01`, gọi `contacts.search` rồi dùng `c_08`). Fine-tune là đòn đúng — nhưng vì lý do này,
+không phải vì lý do tôi viết ở bản trước.
+
+Kết luận cũ **"chỗ nghẽn là hành vi, không phải nhận thức"** vẫn đúng ở mức thô (34/50 lệch hash ở
+context 12288, không route → không phải do prompt bị cắt), nhưng mô tả sai bản chất: nghẽn là **độ
+chính xác của tham số và lựa chọn tool**, không phải sự từ chối hành động.
 
 ### Cơ chế chính xác, và bản vá
 
@@ -77,8 +92,32 @@ Vá, ba phần:
 
 Cộng một dòng vào `SYSTEM_PROMPT`: *"Đọc dữ liệu xong là để hành động, không phải để tóm tắt lại."*
 
-Giá phải trả: ~4 s cho mỗi mẫu chỉ tra cứu (model trả lời `DONE` ở lượt thêm). Trong ngân sách 17 s
+Giá phải trả: ~4 s cho mỗi mẫu chỉ tra cứu (model trả lời `DONE` ở lượt thêm). Trong ngân sách 25 s
 hiện tại thì rẻ. Theo dõi bằng event mới `no_write_pushback` trong `events.jsonl`.
+
+**Tầm với của bản vá này đã đo được: 9/50 mẫu.** Chốt `state_version == 0` khiến nó chỉ bắn vào nhóm
+"không write nào", tức tối đa ~18% số mẫu — không phải 50% như tôi tưởng khi chỉ đọc 7 mẫu đầu. Giữ
+lại vì nó đúng và rẻ, nhưng **không phải đòn chính**. 25 mẫu "write sai" phải chờ fine-tune.
+
+### Bẫy đo lường: 42/50 mẫu preflight nằm trong tập train của SFT
+
+| | |
+|---|---|
+| `train.jsonl` | 1545 mẫu |
+| `sft.train.jsonl` | 1284 mẫu |
+| `sft.eval.jsonl` | 261 mẫu, giao với `sft.train` = **0** |
+| 50 mẫu preflight V16 | **42 trong `sft.train`**, 8 trong `sft.eval` |
+
+Split train/eval của SFT thì sạch, nhưng preflight lấy mẫu từ **cả** 1545 mẫu. Nếu chạy preflight với
+`ADAPTER_DIR` trên đúng 50 mẫu đó, điểm đo được là điểm trên dữ liệu model đã học thuộc — nó sẽ tăng,
+và con số đó không nói gì về `public_test`. Đây là bước 4 của RUNBOOK, và nó sẽ âm thầm cho số đẹp sai.
+
+Vá ở cell 0 + cell 8: `HOLDOUT_IDS = Path('/kaggle/input/lifemate-sft/sft.eval.jsonl')`; khi có file,
+preflight chỉ lấy mẫu từ đó, và `assert len(restricted) >= PREFLIGHT_SAMPLES` để cấu hình sai không
+rơi về "đo trên 7 mẫu". Không có file thì cảnh báo và quay về lấy từ cả split, để run cũ lặp lại được.
+
+**Hệ quả: cần một baseline no-adapter trên 50 mẫu held-out** trước khi so với adapter. Điểm 13.80 ở
+trên là baseline trên tập *bị nhiễm*, không dùng để so được.
 
 ### Hai vấn đề độc lập, nhỏ hơn, đã thấy
 
