@@ -22,10 +22,23 @@ def read_jsonl(path):
     if not path.is_file():
         return []
     rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    broken = []
+    # Tải file trong lúc run còn ghi -> dòng cuối cụt giữa JSON. Chết ở đây thì mất cả phép
+    # đọc vì một dòng; bỏ dòng vỡ và nói rõ ra thì vẫn đọc được 559/560 dòng.
+    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
-        if line:
+        if not line:
+            continue
+        try:
             rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            broken.append(number)
+    if broken:
+        tail = "" if len(broken) <= 5 else f" (in 5 dòng đầu trong {len(broken)})"
+        print(f"⚠️  {path.name}: bỏ {len(broken)} dòng không đọc được ở dòng "
+              f"{', '.join(str(n) for n in broken[:5])}{tail}.")
+        print("    Dòng cuối bị cắt là bình thường nếu tải file lúc run còn ghi; nhiều dòng vỡ "
+              "rải rác thì file tải thiếu, nên tải lại.")
     return rows
 
 
@@ -62,6 +75,20 @@ def main():
     events = read_jsonl(directory / "events.jsonl")
     if not metrics:
         raise SystemExit(f"Không có metrics.jsonl trong {directory} — chưa tải về đủ file?")
+
+    # events.jsonl tải về cụt thì mọi con số suy từ nó đều sai mà vẫn trông hợp lý: V17 phủ
+    # 21/50 mẫu, và phần "lệch hash" đọc ra 10 write-sai / 22 không-write, lật ngược V16
+    # (25/9) chỉ vì 29 mẫu cuối không có tool_end nào. Thà không in còn hơn in số sai.
+    if events:
+        covered = {e.get("sample_id") for e in events if e.get("sample_id")}
+        missing = {r["id"] for r in metrics} - covered
+        if missing:
+            print(f"⚠️  events.jsonl chỉ phủ {len(covered)}/{len(metrics)} mẫu — thiếu "
+                  f"{len(missing)} mẫu. BỎ QUA mọi mục suy từ events (write/không-write, "
+                  f"token/s, pushback): chúng sẽ sai theo hướng khó đoán.")
+            print("    Tải lại bằng Output -> Download All (zip) thay vì tải từng file; "
+                  "tải một file lúc Kaggle còn đang lưu thì được bản cụt.")
+            events = []
 
     print(f"Thư mục : {directory}")
     print(f"Mẫu     : {len(metrics)} bản ghi"
