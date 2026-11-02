@@ -81,13 +81,19 @@ def main():
         zero = [r for r in scored if not r["local_score"]]
         print(f"Mẫu được 0 điểm: {len(zero)}/{len(scored)} ({100*len(zero)/len(scored):.0f}%)")
         if zero:
-            print("  vì sao:")
+            # Thứ tự quan trọng. Bản trước đặt "quá 30s" lên đầu, mà điểm ở đây đo với ngân sách
+            # 600s -> nhãn đó che mất nguyên nhân thật: 16/17 mẫu "quá 30s" cũng lệch hash, và
+            # chúng về 0 vì lệch hash, không vì thời gian. Thời gian chỉ là 0 điểm ở vòng Docker,
+            # và đã có hai dòng riêng bên dưới cho việc đó.
+            print("  vì sao (nguyên nhân làm điểm về 0 với ngân sách hiện tại):")
             for reason, count in Counter(
-                    "quá 30s" if not r.get("within_30_seconds")
-                    else "failed, stop_reason=" + str(r.get("stop_reason")) if r.get("failed")
+                    "failed, stop_reason=" + str(r.get("stop_reason")) if r.get("failed")
                     else "state_hash lệch" if not r.get("state_match")
-                    else "khớp 0 call" for r in zero).most_common():
+                    else "khớp hash nhưng khớp 0 call" for r in zero).most_common():
                 print(f"    {count:4d}  {reason}")
+            slow = sum(1 for r in zero if not r.get("within_30_seconds"))
+            if slow:
+                print(f"    (trong số đó {slow} mẫu cũng quá 30s — xem hai dòng mốc 30s bên dưới)")
 
         # Trên T4 notebook đặt DEADLINE_SECONDS = 600 (chẩn đoán), nên điểm ở trên KHÔNG áp mốc 30s
         # của BTC: nó là điểm CHẤT LƯỢNG thuần. Vòng Docker áp mốc đó, và mẫu quá hạn về 0.
@@ -131,6 +137,55 @@ def main():
     if turns:
         print(f"\nSố lượt LLM/mẫu: {describe(turns, '')}   (MAX_STEPS = 8)")
     print(f"Call bị từ chối trước khi thực thi: {rejected}")
+
+    # ------------------------------------------------- lệch hash: vì sao lệch
+    # Phép tách quyết định hướng đi: "không gọi write" chữa được bằng lời nhắc trong prompt,
+    # "gọi write nhưng sai" thì chỉ fine-tune chữa được. Trên V16 tỉ lệ là 9 / 25 — lời nhắc
+    # với tới 18% số mẫu, phần còn lại không. Đọc kind từ catalogue của BTC, không đoán theo tên.
+    kind = {}
+    for candidate in (directory / "tools_catalog.json",
+                      Path("data/train+public_test/train+public_test/train/train_tools_catalog.json")):
+        if candidate.is_file():
+            def walk(node):
+                if isinstance(node, dict):
+                    if "name" in node and "kind" in node:
+                        kind[node["name"]] = node["kind"]
+                    for value in node.values():
+                        walk(value)
+                elif isinstance(node, list):
+                    for value in node:
+                        walk(value)
+            walk(json.loads(candidate.read_text(encoding="utf-8")))
+            break
+
+    mismatched = [r for r in metrics if not r.get("state_match")]
+    if mismatched and kind and events:
+        writes = Counter()
+        reads = Counter()
+        for event in events:
+            if event.get("event") == "tool_end":
+                name = (event.get("call") or {}).get("name")
+                (writes if kind.get(name) == "write" else reads)[event.get("sample_id")] += 1
+        no_write = [r for r in mismatched if not writes[r["id"]]]
+        bad_write = [r for r in mismatched if writes[r["id"]]]
+        section("MẪU LỆCH state_hash — gọi write sai, hay không gọi write?")
+        print(f"{len(mismatched)}/{len(metrics)} mẫu lệch hash, mỗi mẫu là 0 điểm:")
+        print(f"  {len(bad_write):4d}  CÓ gọi write nhưng vẫn lệch  <- chỉ fine-tune chữa được")
+        if bad_write:
+            zero_match = sum(1 for r in bad_write if not r.get("matched_calls"))
+            print(f"        trong đó {zero_match} mẫu khớp 0 call: sai tên tool, hoặc sai tham số")
+        print(f"  {len(no_write):4d}  KHÔNG gọi write nào         <- lời nhắc trong prompt với tới được")
+        if no_write:
+            after_read = sum(1 for r in no_write if reads[r["id"]])
+            print(f"        trong đó {after_read} mẫu đã đọc dữ liệu rồi dừng lại")
+        pushback = {e.get("sample_id") for e in events if e.get("event") == "no_write_pushback"}
+        if pushback:
+            saved = sum(1 for r in metrics if r["id"] in pushback and r.get("state_match"))
+            print(f"\nno_write_pushback bắn trên {len(pushback)} mẫu; {saved} mẫu sau đó khớp hash.")
+        print("\nSo tay một mẫu cụ thể (gold ở khoá label.tool_calls của train.jsonl):")
+        print("  python -c \"import json;g={json.loads(l)['id']:json.loads(l) for l in "
+              "open('data/train+public_test/train+public_test/train/train.jsonl',encoding='utf-8')};"
+              "print(json.dumps(g['train_0354']['label'],ensure_ascii=False,indent=1))\"")
 
     # ------------------------------------------------------------ thời gian
     section("THỜI GIAN  —  ngân sách vòng Docker là 30 s/mẫu trên A30")

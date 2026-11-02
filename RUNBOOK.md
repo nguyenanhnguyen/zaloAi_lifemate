@@ -99,6 +99,11 @@ Phải thấy 4 file: 0.7 MB · 0.3 MB · 24.1 MB · 5.1 MB. Thiếu file nào t
 > Không cần upload `sft.tok.*.jsonl` (92 MB). Kaggle tự tokenize mất ~7 phút — không đáng kể so với
 > quota 12 giờ, và bớt được một chỗ dễ nhầm.
 
+> ⚠️ **`sft.eval.jsonl` không chỉ dùng cho bước 3.** Notebook V2 đọc nó qua `HOLDOUT_IDS` để chọn 50
+> mẫu preflight. Thiếu file này thì preflight lấy mẫu từ cả 1545 mẫu train, mà 42/50 trong số đó nằm
+> trong `sft.train.jsonl` — điểm ở bước 4 sẽ tăng vì model đã học thuộc, không vì nó khá hơn. Cell 8
+> ghi `WARNING` khi không thấy file; đọc `run.log` để xác nhận nó đã lấy mẫu từ held-out.
+
 ---
 
 ## Bước 2 — Phiên 1: preflight **zero-shot** *(≈2–3 giờ)*
@@ -223,6 +228,12 @@ cần tải về rồi upload lại.
 **Ở đâu:** Kaggle, **mở lại chính notebook của bước 2**. Không import lại, không tạo mới.
 
 Cùng 50 mẫu, cùng `SEED = 42`, chỉ khác adapter → hiệu số chính là đóng góp của fine-tune.
+
+> ⚠️ **Phép so chỉ có nghĩa nếu 50 mẫu đó nằm NGOÀI `sft.train.jsonl`.** Đã đo trên V16: 42/50 mẫu
+> preflight của cấu hình cũ nằm trong tập train. Notebook giờ chọn mẫu qua `HOLDOUT_IDS`
+> (`sft.eval.jsonl`, 261 mẫu, giao với train = 0), nên **baseline `v2_base` phải chạy lại với bản
+> notebook có `HOLDOUT_IDS`** — điểm 13.80 của V16 đo trên tập bị nhiễm, không dùng để so được.
+> Kiểm trong `run.log`: phải có dòng `Preflight lấy mẫu từ held-out: 261 mẫu khả dụng`.
 
 1. Mở notebook bước 2 → *Add Data* → tab *Your Work* / *Notebook Output* → chọn notebook bước 3
 2. Sửa cell 1:
