@@ -30,11 +30,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import random
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Attention in blocks allocates a differently shaped score tensor per block (1024 x 1024,
+# 1024 x 2048, ...), which fragments the caching allocator: the run that OOMed at step 2 had
+# 2.51 GiB reserved but unallocated while asking for 704 MiB. Set before torch initialises
+# CUDA, which is why it sits at import time rather than next to the other GPU settings.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 IGNORE = -100
 QUERY_BLOCK = 1024
@@ -228,6 +235,17 @@ def main() -> None:
     parser.add_argument("--lora-r", type=int, default=32)
     parser.add_argument("--lora-alpha", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--quant", choices=["nf4", "fp16"], default="nf4",
+                        help="fp16 = no 4-bit, 8.06 GiB of weights split across the cards. On a "
+                             "T4 the nf4 dequantisation runs at 2.8%% of peak, so this trades "
+                             "memory we have for speed we do not")
+    parser.add_argument("--limit", type=int,
+                        help="train on this many conversations, sampled with --seed. 310 steps "
+                             "measured 738 s each, so a full epoch is 31 h against a 12 h "
+                             "session limit; this is what buys a run that finishes")
+    parser.add_argument("--eval-limit", type=int,
+                        help="likewise for the eval set; 0 turns evaluation off. 243 samples of "
+                             "eval cost about 1.5 h, which is budget better spent on training")
     parser.add_argument("--attn", choices=["sdpa", "block"], default="sdpa",
                         help="block = attention in query blocks, for cards where SDPA falls back "
                              "to the math kernel and its (L, L) score matrix does not fit")
@@ -273,6 +291,21 @@ def main() -> None:
     if args.tokenize_only:
         return
 
+    def shrink(items, keep, name):
+        if keep is None or keep >= len(items):
+            return items
+        picked = random.Random(args.seed).sample(items, keep) if keep else []
+        tokens = sum(len(item["input_ids"]) for item in picked)
+        supervised = sum(sum(1 for x in item["labels"] if x != IGNORE) for item in picked)
+        print(f"{name}: lấy {len(picked)}/{len(items)} hội thoại, {tokens:,} token "
+              f"({supervised:,} có loss)")
+        return picked
+
+    train_set = shrink(train_set, args.limit, "train")
+    eval_set = shrink(eval_set, args.eval_limit, "eval") if eval_set else None
+    if not train_set:
+        raise SystemExit("tập train rỗng")
+
     import torch
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from transformers import AutoModelForCausalLM, BitsAndBytesConfig, Trainer, TrainingArguments
@@ -304,8 +337,10 @@ def main() -> None:
         AttentionInterface.register("block", block_attention_forward)
         print(f"attention theo khối {QUERY_BLOCK} query: không dựng ma trận (L, L)")
     dtype = torch.bfloat16 if bf16 else torch.float16
-    quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
-                               bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype)
+    quant = None
+    if args.quant == "nf4":
+        quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                                   bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype)
     # Sharding across both T4s is not about the 4-bit weights (2.4 GiB) but the loss: a
     # 8192 x 151936 logit tensor is 2.5 GiB in fp16 and is upcast to fp32 for cross-entropy.
     # Splitting puts lm_head and that peak on the second card.
@@ -315,7 +350,15 @@ def main() -> None:
         source, revision=revision, quantization_config=quant, dtype=dtype,
         device_map=device_map, attn_implementation=args.attn)
     model.config.use_cache = False
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    if quant is not None:
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    else:
+        # Same two things prepare_model_for_kbit_training does that we still need. Its third --
+        # upcasting every unquantised parameter to fp32 -- is what made embed_tokens cost
+        # 1.56 GiB instead of 778 MiB, and with no 4-bit weights there is nothing to protect.
+        model.gradient_checkpointing_enable({"use_reentrant": False})
+        print(f"fp16, không lượng tử hoá: {sum(p.numel() for p in model.parameters()) * 2 / 2**30:.2f} "
+              f"GiB trọng số chia trên {count} card")
     model = get_peft_model(model, LoraConfig(
         r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=0.05, bias="none",
         task_type="CAUSAL_LM",
