@@ -133,6 +133,11 @@ def main() -> None:
     parser.add_argument("--train", default="sft.train.jsonl")
     parser.add_argument("--eval", default="sft.eval.jsonl")
     parser.add_argument("--model", help="local snapshot or hub id; defaults to the pipeline's LLM")
+    parser.add_argument("--revision",
+                        help="commit to pin when --model is a hub id. Without it the hub serves "
+                             "whatever main points at today, so the adapter can end up trained on "
+                             "weights the notebook does not load at inference -- and the rules "
+                             "require a deterministic, offline-reproducible solution.")
     parser.add_argument("--out", default="lora_sft")
     parser.add_argument("--max-seq-len", type=int, default=8192,
                         help="8192 keeps 96%% of conversations whole; see build_sft.py --count-tokens")
@@ -153,7 +158,10 @@ def main() -> None:
     if args.model:
         # Stand-alone: this file plus the two JSONL datasets is enough to train on a fresh box
         # (Kaggle, or the Docker build), with no need to carry src/ along.
-        source, revision = args.model, None
+        source, revision = args.model, args.revision
+        if revision is None and not Path(source).exists():
+            print(f"⚠️  --model {source} là hub id mà không có --revision: huấn luyện sẽ bám bản "
+                  f"main hôm nay, có thể khác bản notebook nạp lúc suy luận.")
     else:
         from src.llm_agent import LLM_REPO, LLM_REVISION
         source, revision = LLM_REPO, LLM_REVISION
