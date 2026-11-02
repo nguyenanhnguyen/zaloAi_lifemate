@@ -37,6 +37,51 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 IGNORE = -100
+QUERY_BLOCK = 1024
+
+
+def block_attention_forward(module, query, key, value, attention_mask,
+                            dropout: float = 0.0, scaling: float | None = None,
+                            is_causal: bool | None = None, **kwargs):
+    """Causal attention computed in blocks of QUERY_BLOCK queries.
+
+    Below sm80 SDPA has no flash kernel, and on the 2x T4 run it also declined the
+    memory-efficient one, leaving the math fallback -- which materialises the entire
+    (1, 32, L, L) score matrix: 1.1 GiB at L=4335, 4.0 GiB at L=8192. Rather than keep
+    guessing why a kernel was rejected, this sidesteps the question: each block only ever
+    scores QUERY_BLOCK queries against the keys up to its own end, so the peak is
+    32 x 1024 x L instead of 32 x L x L -- 512 MiB at L=8192, and flat in L per block.
+
+    Slower than a fused kernel, but a T4 at 8192 tokens is compute-bound anyway, and the
+    arithmetic is plain SDPA per block so the result is bit-comparable with the sdpa path
+    (checked in scripts/diag/check_block_attention.py). Autograd handles the blocks; each
+    decoder layer is already wrapped in gradient checkpointing above this.
+    """
+    import torch
+    from transformers.integrations.sdpa_attention import repeat_kv
+
+    groups = getattr(module, "num_key_value_groups", 1)
+    if groups > 1:
+        key = repeat_kv(key, groups)
+        value = repeat_kv(value, groups)
+
+    length = query.shape[2]
+    pieces = []
+    for start in range(0, length, QUERY_BLOCK):
+        stop = min(start + QUERY_BLOCK, length)
+        if attention_mask is not None:
+            mask = attention_mask[:, :, start:stop, :stop]
+        else:
+            # Query at absolute position i may attend to keys j <= i. is_causal cannot express
+            # that here: within a block the diagonal sits at column start+row, not at row.
+            rows_ = torch.arange(start, stop, device=query.device)
+            cols = torch.arange(stop, device=query.device)
+            mask = cols[None, :] <= rows_[:, None]
+        pieces.append(torch.nn.functional.scaled_dot_product_attention(
+            query[:, :, start:stop], key[:, :, :stop], value[:, :, :stop],
+            attn_mask=mask, dropout_p=dropout, scale=scaling, is_causal=False))
+
+    return torch.cat(pieces, dim=2).transpose(1, 2).contiguous(), None
 
 
 def rows(path: Path) -> list[dict]:
@@ -149,6 +194,9 @@ def main() -> None:
     parser.add_argument("--lora-r", type=int, default=32)
     parser.add_argument("--lora-alpha", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--attn", choices=["sdpa", "block"], default="sdpa",
+                        help="block = attention in query blocks, for cards where SDPA falls back "
+                             "to the math kernel and its (L, L) score matrix does not fit")
     parser.add_argument("--cache", help="prefix for the tokenised cache, e.g. sft.tok")
     parser.add_argument("--inspect", type=int, metavar="N",
                         help="print the mask for N conversations and exit; no GPU, no peft")
@@ -209,11 +257,18 @@ def main() -> None:
     # Hence the second half: with math disabled, SDPA raises instead of silently falling back,
     # and the warnings it prints name the reason each kernel was turned down. Diagnosing a
     # crash we can read beats diagnosing an OOM we have to reverse-engineer.
-    old_gpu = torch.cuda.is_available() and torch.cuda.get_device_capability()[0] < 8
+    old_gpu = (args.attn == "sdpa" and torch.cuda.is_available()
+               and torch.cuda.get_device_capability()[0] < 8)
     if old_gpu:
         from transformers.integrations import sdpa_attention
         sdpa_attention.use_gqa_in_sdpa = lambda *_: False
         print("sm75 hoặc cũ hơn: tắt enable_gqa, và chỉ cho phép backend mem_efficient")
+    if args.attn == "block":
+        # Registered under its own name rather than patched over "sdpa", so the log and the
+        # saved adapter config both say which attention the weights were trained with.
+        from transformers.modeling_utils import AttentionInterface
+        AttentionInterface.register("block", block_attention_forward)
+        print(f"attention theo khối {QUERY_BLOCK} query: không dựng ma trận (L, L)")
     dtype = torch.bfloat16 if bf16 else torch.float16
     quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
                                bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=dtype)
@@ -224,7 +279,7 @@ def main() -> None:
     device_map = "balanced" if count > 1 else ({"": 0} if count else None)
     model = AutoModelForCausalLM.from_pretrained(
         source, revision=revision, quantization_config=quant, dtype=dtype,
-        device_map=device_map, attn_implementation="sdpa")
+        device_map=device_map, attn_implementation=args.attn)
     model.config.use_cache = False
     model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
     model = get_peft_model(model, LoraConfig(
