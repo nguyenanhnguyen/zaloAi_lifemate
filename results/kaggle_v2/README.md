@@ -13,6 +13,7 @@ Notebook: [`notebook/lifemate_kaggle_v2.ipynb`](../../notebook/lifemate_kaggle_v
 | 14 | 227 s | `OutOfMemoryError` 5.00 GiB | `enable_gqa=True` của transformers là đường math kernel, O(N²) |
 | 15 | 1499 s | 4/5 mẫu `LLM token limit reached` | bản **Thinking** tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>` |
 | 16 | 1428 s | **chạy thông, 13.80** | thời gian đã ổn; chỗ mất điểm là độ chính xác tham số (mục dưới) |
+| 17 | — | **14.40** (+0,60) | pushback + dòng `SYSTEM_PROMPT` mới; 1 mẫu lên điểm, 0 mẫu xuống |
 
 Từ V15 trở đi hạ tầng đã thông: model nạp xong, prefill ~9160 token chạy qua, 1 mẫu hoàn tất
 đúng (`train_0063`, 1 call, `done`). Những gì còn lại là chất lượng, không phải lỗi hệ thống.
@@ -118,6 +119,37 @@ rơi về "đo trên 7 mẫu". Không có file thì cảnh báo và quay về l�
 
 **Hệ quả: cần một baseline no-adapter trên 50 mẫu held-out** trước khi so với adapter. Điểm 13.80 ở
 trên là baseline trên tập *bị nhiễm*, không dùng để so được.
+
+### V17: bản vá hành vi đáng +0,60 điểm, và prompt đã gần hết đường
+
+`python scripts/diag/diff_runs.py temp/v16 temp/v17` — cùng 50 mẫu, cùng `SEED = 42`:
+
+```
+điểm      : 13.80  ->  14.40   (+0.60)
+hash khớp : 16  ->  18  / 50
+ĐIỂM LÊN  : 1 mẫu    train_0435  0.50 -> 0.80  (khớp 1/2 -> 2/2)
+ĐIỂM XUỐNG: 0 mẫu
+LẬT HASH MÀ ĐIỂM KHÔNG ĐỔI: 2 mẫu   train_0469, train_1715  (khớp 0/2, 0/1)
+```
+
+Ba chốt giữ đúng lời hứa: **không mẫu nào tụt điểm**. Nhưng tầm với thì đúng như dự đoán từ phép tách
+9/25 — nhỏ. **Prompt engineering coi như hết đường ở đây**; 25 mẫu "write sai" phải chờ fine-tune.
+
+Hai điều học được, cả hai về cách đo:
+
+1. **Bản vá gộp hai thay đổi** (logic pushback *và* ba dòng `SYSTEM_PROMPT`), mà dòng prompt đổi
+   đường đi của cả 50 mẫu. Bằng chứng: `train_0469` và `train_1715` lật hash với số lượt **giảm**
+   (6→3, 5→3) — pushback thì phải *thêm* lượt, nên đó là tác dụng của prompt. Không quy được +0,60
+   cho cái nào. Lần sau: một thay đổi một run, hoặc chịu mất khả năng quy nguyên nhân.
+2. **`LẬT HASH MÀ ĐIỂM KHÔNG ĐỔI` là nhóm đáng nhìn riêng.** Hai mẫu đó giờ tới đúng trạng thái cuối
+   nhưng khớp 0/2 và 0/1 call → F1 = 0 → vẫn 0 điểm. Tức tới đúng đích bằng đường khác gold vẫn
+   không được tính. Điểm tổng không cho thấy nhóm này; `diff_runs.py` in riêng.
+
+⚠️ **`events.jsonl` của V17 tải về cụt: phủ 21/50 mẫu** (dừng giữa JSON ở `train_0508`). `metrics.jsonl`
+và `summary.json` đủ 50 nên điểm tin được, nhưng mọi mục suy từ events thì sai mà vẫn trông hợp lý —
+nó đọc ra 10 write-sai / 22 không-write, **lật ngược** tỉ lệ 25/9 của V16, chỉ vì 29 mẫu cuối không có
+`tool_end` nào. `read_run.py` giờ đối chiếu độ phủ với `metrics.jsonl` và bỏ hẳn các mục đó khi thiếu.
+Tải bằng **Output → Download All (zip)**, đừng tải từng file.
 
 ### Hai vấn đề độc lập, nhỏ hơn, đã thấy
 
