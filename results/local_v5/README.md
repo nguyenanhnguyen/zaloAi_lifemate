@@ -32,23 +32,63 @@ transcript giống **chính xác** thứ Kaggle dùng, nên hai bên so được
 | `train_0011` | **151.5 giây** (LLM 151.5, ASR 0.0), 4 lượt, `done` |
 | GPU đỉnh | 4096 MiB — bão hoà |
 
-→ 50 mẫu ≈ **2.1 giờ**. 151.5 giây/mẫu không phải tốc độ thi được (luật là 30 giây trên A30),
+→ 50 mẫu ≈ **2.1 giờ**; thực tế trung vị 165 giây/mẫu. 151.5 giây/mẫu không phải tốc độ thi được (luật là 30 giây trên A30),
 và không cố là: lượt này đo **chất lượng quyết định**, đúng như `local_v1` từng làm.
 
 ## Kết quả
 
-*chờ chạy — mục này điền sau khi có `score.py` và `action_buckets.py`*
+**Điểm 0.0390 — leaderboard đọc là 3.90.** 1/50 mẫu hoàn hảo, 47/50 ăn 0, và cả 47 đều vì
+**`state_hash` lệch** — lệch hash thì điểm là 0 bất kể gọi đúng lệnh nào.
 
-| | baseline (không adapter) | có `lora_V3` |
+| bucket | local_v5 (50 mẫu, **không cắt**) | local_v4 (100 mẫu, **cắt 1800 token**) |
 |---|---|---|
-| Điểm | — | — |
-| `đúng hẳn` | — | — |
-| `ghi sai` | — | — |
-| `KHÔNG ghi` | — | — |
-| `dừng đúng` | — | — |
+| `đúng hẳn` | **2%** | 0% |
+| `ghi thiếu` | 16% | 1% |
+| `ghi sai` | **58%** | 36% |
+| `KHÔNG ghi` | **16%** | 48% |
+| `ghi thừa` | 6% | 3% |
+| `dừng đúng` | 2% | 12% |
 
-Mốc để so, từ `local_v4` (100 mẫu, **có cắt prompt**): `đúng hẳn` 0%, `ghi sai` 36%,
-`KHÔNG ghi` 48%, `dừng đúng` 12%.
+Đây là phép đo đáng giá nhất của lượt này, và nó **không phải thứ tôi đoán trước**. Cho đủ
+catalogue thì `KHÔNG ghi` sụp từ 48% xuống 16%: model chịu hành động. Nhưng `ghi sai` phình từ
+36% lên 58%. Tức là **cắt prompt không tạo ra lỗi "không ghi" — nó chỉ làm model tê liệt**, còn
+cái dốt nằm bên dưới thì vẫn nguyên. Fine-tune phải nhắm vào `ghi sai`, không phải `KHÔNG ghi`.
+
+## Vì sao `ghi sai` — đã truy ra, không phải phỏng đoán
+
+Đo trên chính 50 mẫu này:
+
+| | |
+|---|---|
+| Lệnh có tham số `x-ref` | 48 |
+| ...thiếu một lệnh **đọc** đi trước | **0 (0%)** |
+| Lệnh `x-ref` **đúng tool** | 31 |
+| ...nhưng **sai ID hoàn toàn** | **11 (35%)** |
+| Lệnh `x-ref` **sai cả tool** | 20 |
+
+`0%` ở dòng thứ hai giết một hướng đi: bản kế hoạch phụ lục trong `docs/context.txt` đề xuất
+luật "read-before-write cho `x-ref`", nhưng model **đã luôn đọc trước khi ghi**. Luật đó sẽ
+không bắt trúng một lệnh nào.
+
+Lỗi thật là model **bịa ra định dạng ID**:
+
+| ta gọi | ID thật |
+|---|---|
+| `cont_002` | `c_04` |
+| `contact_01` | `c_03` |
+| `ct_001` | `c_01` |
+| `bill_001` | `bill_01` |
+| `light_bedroom` | `light_bedroom2` |
+
+Hai điều khiến chuyện này sửa được bằng code, không cần GPU:
+
+1. `SYSTEM_PROMPT` **đã** ghi "Lấy ID từ kết quả công cụ... không tự tạo ID". Nhắc bằng lời
+   không đủ.
+2. `env.validate()` **không** kiểm tra `x-ref` có tồn tại. Submission lấy từ
+   `env.get_tool_calls()`, nên `cont_002` đã **chạy thật**, chứ không phải bị chặn rồi lọt vào
+   file.
+
+→ Màng chắn `x-ref` (commit `548ca96`), A/B ở `results/local_v6/`.
 
 ## File
 
@@ -56,5 +96,6 @@ Mốc để so, từ `local_v4` (100 mẫu, **có cắt prompt**): `đúng hẳn
 |---|---|
 | `ids50.txt` | 50 id đã chạy; 50 dòng đầu của `sft.eval.jsonl` |
 | `probe3.*` | phép thử định cỡ |
-| `baseline.jsonl` + `.metrics.jsonl` | lượt không adapter |
-| `lora_v3.jsonl` + `.metrics.jsonl` | lượt có adapter |
+| `baseline.jsonl` + `.metrics.jsonl` | lượt không adapter — **3.90** |
+
+Lượt có adapter sẽ nằm ở folder riêng khi `lora_V3` về, không ghi đè vào đây.
