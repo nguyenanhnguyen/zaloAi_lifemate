@@ -113,13 +113,19 @@ def main() -> None:
     parser.add_argument("--max-steps", type=int, default=8, help="Bounded LLM turns per sample (1-16)")
     parser.add_argument("--max-seconds", type=float, default=30, help="Sample budget; 30 matches the competition's A30 rule")
     parser.add_argument("--max-new-tokens", type=int, default=256)
-    parser.add_argument("--prompt-token-budget", type=int, default=1800,
+    parser.add_argument("--prompt-token-budget", type=int, default=100_000,
                         help="Route/compact tool schemas down to about this many prompt tokens. "
-                             "Prefill cost explodes past ~2k tokens on a small GPU (measured: 1k "
-                             "prompt 5.5 s vs 3.9k prompt 252 s), so this is the main speed lever.")
-    parser.add_argument("--context-size", type=int, default=4096,
-                        help="Total input/output context, at most 16384. Matches the Kaggle notebook's "
-                             "T4 value; raising it noticeably increases peak attention memory per LLM turn.")
+                             "Mặc định cũ là 1800 và nó là đòn bẩy tốc độ thật, NHƯNG nó cũng là "
+                             "cấu hình đã kéo local_v4 xuống 5.50 trong khi local_v1 không cắt gì "
+                             "đạt 22.52. scripts/diag/route_recall.py đo trên 1196 mẫu: truy hồi "
+                             "tool tốt nhất (bge-m3) cho sẵn 10 tool chỉ đúng 46.7%% mẫu, vì tool "
+                             "cần được phát hiện GIỮA quỹ đạo chứ không suy ra được từ câu yêu "
+                             "cầu. Nên mặc định giờ là không cắt; đặt số nhỏ chỉ khi chấp nhận "
+                             "đánh đổi điểm lấy tốc độ, và ghi rõ vào README của lần chạy.")
+    parser.add_argument("--context-size", type=int, default=12288,
+                        help="Total input/output context, at most 16384. 12288 là giá trị của "
+                             "local_v1 (22.52); 4096 cũ cắt cụt catalogue của mẫu dài -- trung vị "
+                             "hội thoại đã là 5220 token. Tăng thì tốn bộ nhớ attention mỗi lượt.")
     parser.add_argument("--asr-max-new-tokens", type=int, default=256)
     parser.add_argument("--asr-only", action="store_true",
                         help="Run the ASR phase, write the transcript cache and stop, without "
