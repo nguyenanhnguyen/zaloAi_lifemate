@@ -83,6 +83,57 @@ Cờ llama.cpp trong `llm_agent.py`: `--flash-attn on --jinja --ctx-size 12288 -
 
 `transformers` pin **4.57.6** (repo hiện tại dùng 5.13.0 — phải pin lại để chạy bản này).
 
+## Từng file đến từ đâu
+
+Không phải mọi file trong `pipeline/` đều là hiện vật của lần chạy 22.52. Phân loại theo
+`git log` từng file, tính đến `7002744`:
+
+### Là output của chính lần chạy — chứng minh được
+
+| File | Bằng chứng |
+|---|---|
+| `submission.jsonl` | xuất hiện lần đầu ở `7002744`, md5 trùng `results/local_v1` |
+| `submission.metrics.jsonl` | md5 trùng, **và** số dòng tăng dần qua các commit: 242 → 432 → 435 → **634** |
+
+Dòng thứ hai là bằng chứng mạnh hơn md5: file đo **lớn dần qua bốn commit**, tức nó là log
+đang chạy của một lượt dài được commit nhiều lần, không phải file được dựng lại sau. Lần chạy
+nằm vắt qua `114f997` → `7002744`.
+
+### Là code có trước lần chạy và không đổi qua nó
+
+`src/pipeline.py`, `src/llm_agent.py`, `src/asr.py`, `scripts/infer.py`, `requirements.txt`,
+`README.md` — tất cả sửa lần cuối ở **`114f997` (30/10)**, trước khi lượt chạy xong, và không
+đổi ở `7002744`. `docs/context.txt` từ commit đầu tiên `a37eaf1` (28/10), chưa ai chạm.
+
+Nên code là code có trước lần chạy. Đây là bằng chứng mạnh, nhưng vẫn **không loại trừ sửa
+chưa commit** trong cây làm việc lúc chạy.
+
+### KHÔNG phải hiện vật của lần chạy 22.52
+
+| File | Vì sao |
+|---|---|
+| `lifemate_kaggle.ipynb` | sửa **ngay tại `7002744`**, +150 dòng. Nó đang được làm dở quanh lúc đó, và là notebook Kaggle GPU trong khi 22.52 chạy local CPU. Trạng thái của nó **không neo vào thời điểm chạy**. |
+| `debug.jsonl`, `debug.metrics.jsonl` | thêm ở `7002744`, 1 mẫu. Một phép thử nhanh cùng thời, không phải lượt 22.52. |
+| `train_quality.*.jsonl` | 0 byte. |
+
+## Một mâu thuẫn trong tài liệu repo, chưa giải quyết được
+
+Hai tài liệu nói khác nhau về việc 22.52 thuộc lượt chạy nào:
+
+- **`results/local_v1/README.md`** nói 22.52 là của bài nộp **634 mẫu**, và bảng `stop_reason`
+  của nó (done 487, empty_response 58, step_limit 43, asked_missing 33, repeated_invalid_call
+  12, error 1) **khớp chính xác** với file thật.
+- **`EXPERIMENTS.md`** (mục "local – PhoASR-small + Qwen3.5-4B Q8") gắn 22.52 vào một lượt
+  **50 mẫu**: done 37/50, step_limit 3, asked_missing 5, empty_response 4, repeated_invalid 1
+  — tổng đúng 50. Và dòng 821 ghi thẳng "File metrics gốc (**50 mẫu** public_test ... 22.52
+  điểm)".
+
+Bản 634 mẫu tự nhất quán và đã được kiểm từ file thật, nên tôi coi nó là bài nộp. Bản 50 mẫu
+gần như chắc chắn là ghi chú tiến độ viết lúc lượt chạy còn dở — phù hợp với việc file đo lớn
+dần 242 → 634 — rồi con số 22.52 được gắn vào sau. Nhưng **không có biên nhận nộp bài nào
+trong repo**, nên đây là suy luận, không phải bằng chứng. Ai dùng con số 22.52 cần biết điều
+này.
+
 ## Khoảng mờ không gỡ được
 
 1. **Cây làm việc lúc chạy có thể khác commit.** Git không thấy sửa chưa commit. Bằng chứng
