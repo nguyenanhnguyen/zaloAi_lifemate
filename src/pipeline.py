@@ -58,6 +58,41 @@ def _app_hints(catalog: dict) -> dict[str, str]:
             for app in catalog.get("apps", []) if app.get("id")}
 
 
+def _xref_params(tools: list[dict]) -> dict[str, list[str]]:
+    """tên tool -> các tham số có cờ `x-ref`. 65/147 tool có, và luật nói giá trị phải là một ID
+    có thật trong dữ liệu ứng dụng."""
+    out = {}
+    for tool in tools:
+        props = (tool.get("parameters") or {}).get("properties") or {}
+        found = [key for key, schema in props.items()
+                 if isinstance(schema, dict) and schema.get("x-ref")]
+        if found:
+            out[tool["name"]] = found
+    return out
+
+
+def _collect_scalars(obj, out: set[str]) -> None:
+    """Nhặt mọi giá trị vô hướng trong một kết quả công cụ vào `out`.
+
+    Nhặt rộng tay là có ý: tập này chỉ dùng để TỪ CHỐI, nên bỏ sót một ID thật sẽ chặn oan một
+    lệnh đúng, còn nhặt thừa một chuỗi vô hại thì không hại gì.
+    """
+    if isinstance(obj, dict):
+        for value in obj.values():
+            _collect_scalars(value, out)
+    elif isinstance(obj, list):
+        for value in obj:
+            _collect_scalars(value, out)
+    elif isinstance(obj, (str, int, float)) and not isinstance(obj, bool):
+        text = str(obj).strip()
+        if text:
+            out.add(text)
+
+
+def _looks_like_id(text: str) -> bool:
+    return "_" in text and " " not in text and len(text) <= 40
+
+
 def _native_tools(tools: list[dict]) -> list[dict]:
     return [{"type": "function", "function": {
         "name": tool["name"],
@@ -69,11 +104,14 @@ def _native_tools(tools: list[dict]) -> list[dict]:
 
 class Pipeline:
     def __init__(self, asr_model: WhisperASR, llm_agent: LLMAgent,
-                 *, max_steps: int = MAX_STEPS, max_seconds: float = 600) -> None:
+                 *, max_steps: int = MAX_STEPS, max_seconds: float = 600,
+                 xref_gate: bool = True) -> None:
         self.asr_model = asr_model
         self.llm_agent = llm_agent
         self.max_steps = max_steps
         self.max_seconds = max_seconds
+        self.xref_gate = xref_gate
+        self.xref_rejections = 0
         self.last_asr_seconds = 0.0
         self.last_llm_seconds = 0.0
         self.last_transcript = ""
@@ -87,6 +125,7 @@ class Pipeline:
         self.last_asr_seconds = self.last_llm_seconds = 0.0
         self.last_transcript = ""
         self.steps = 0
+        self.xref_rejections = 0
         self.llm_agent.reset()  # fresh sample: no KV-cache prefix carries over
         tools = _available_tools(catalog, item.get("context", {}).get("installed_apps", {}))
         names = {tool["name"] for tool in tools}
@@ -121,6 +160,13 @@ class Pipeline:
         executed: dict[str, tuple[int, dict]] = {}
         state_version = 0
         kinds = {tool["name"]: tool.get("kind", "write") for tool in tools}
+        xrefs = _xref_params(tools)
+        # Mọi ID mà model ĐƯỢC PHÉP dùng: thấy trong lịch sử đã hoàn thành, hoặc trong một kết
+        # quả công cụ của chính lượt này. Luật nói x-ref phải là ID có thật, nhưng env.validate()
+        # KHÔNG kiểm tra điều đó -- lượt local_v5 nộp được cả `cont_002` và `bill_001` qua
+        # validate, trong khi ID thật là `c_04` và `bill_01`.
+        observed: set[str] = set()
+        _collect_scalars(content, observed)
         for step in range(self.max_steps):
             self.steps = step + 1
             if time.perf_counter() >= deadline:
@@ -161,6 +207,7 @@ class Pipeline:
             messages.append({"role": "assistant", "content": response.get("content") or "",
                              "tool_calls": calls})
             error = None
+            xref_error = False
             if name not in names or not isinstance(args, dict):
                 error = "Unknown tool or malformed arguments. Use the provided schema."
             else:
@@ -169,8 +216,23 @@ class Pipeline:
                     error = validation.get("error") or "Schema validation failed"
                 elif signature in executed and (kinds[name] != "read" or executed[signature][0] == state_version):
                     error = "This exact call was already executed. Use its earlier result; continue with remaining tasks or DONE."
+                elif self.xref_gate:
+                    invented = [str(args[key]).strip() for key in xrefs.get(name, [])
+                                if args.get(key) is not None
+                                and str(args[key]).strip() not in observed]
+                    if invented:
+                        self.xref_rejections += 1
+                        xref_error = True
+                        known = sorted(i for i in observed if _looks_like_id(i))[:40]
+                        error = (f"ID không tồn tại: {', '.join(invented)}. Bạn đang TỰ TẠO ID. "
+                                 f"Chỉ được dùng ID xuất hiện trong kết quả công cụ hoặc lịch sử. "
+                                 f"ID đã thấy: {', '.join(known) or '(chưa có)'}. "
+                                 f"Gọi công cụ đọc để lấy ID thật trước.")
             if error:
-                if signature == previous_rejected:
+                # Lặp lại một lệnh sai thì dừng -- TRỪ lỗi x-ref. Ở đó thông báo lỗi có kèm danh
+                # sách ID thật, nên lượt thử lại là có ích; và `max_steps` đã chặn vòng lặp.
+                # Dừng ở đây sẽ đẩy mẫu vào bucket "KHÔNG ghi", đúng thứ ta đang cố thoát ra.
+                if signature == previous_rejected and not xref_error:
                     self.stop_reason = "repeated_invalid_call"
                     break
                 previous_rejected = signature
@@ -183,6 +245,7 @@ class Pipeline:
                 if kinds[name] == "write":
                     state_version += 1
                 executed[signature] = (state_version, result)
+                _collect_scalars(result, observed)
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(result, ensure_ascii=False)})
             if not error and name == "sys.ask_missing_info":

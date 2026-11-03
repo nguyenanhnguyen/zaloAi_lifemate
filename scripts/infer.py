@@ -112,6 +112,12 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true", help="Continue an output containing a valid completed prefix")
     parser.add_argument("--max-steps", type=int, default=8, help="Bounded LLM turns per sample (1-16)")
     parser.add_argument("--max-seconds", type=float, default=30, help="Sample budget; 30 matches the competition's A30 rule")
+    parser.add_argument("--no-xref-gate", action="store_true",
+                        help="Tắt màng chắn x-ref. Mặc định là BẬT: từ chối lệnh có tham số "
+                             "x-ref mang ID chưa từng xuất hiện trong kết quả công cụ hay lịch "
+                             "sử. env.validate() không kiểm tra điều này -- local_v5 nộp được "
+                             "`cont_002`/`bill_001` trong khi ID thật là `c_04`/`bill_01`, và "
+                             "11/31 lệnh x-ref đúng tool vẫn sai ID. Dùng cờ này để A/B.")
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--prompt-token-budget", type=int, default=100_000,
                         help="Route/compact tool schemas down to about this many prompt tokens. "
@@ -261,7 +267,8 @@ def main() -> None:
     llm = LLMAgent(args.llm_model, context_size=args.context_size, max_new_tokens=args.max_new_tokens,
                    precision=precision, prompt_token_budget=args.prompt_token_budget,
                    adapter=args.adapter)
-    pipeline = Pipeline(asr, llm, max_steps=args.max_steps, max_seconds=args.max_seconds)
+    pipeline = Pipeline(asr, llm, max_steps=args.max_steps, max_seconds=args.max_seconds,
+                        xref_gate=not args.no_xref_gate)
     metrics_path = args.metrics_output or args.output.with_suffix(".metrics.jsonl")
     if metrics_path.resolve() == args.output.resolve():
         llm.close()
@@ -310,12 +317,14 @@ def main() -> None:
                           "whole_gpu_used_mb": round((total-free) / 1024**2),
                           "over_30_seconds": whole_sample > 30, "failed": failed,
                           "stop_reason": pipeline.stop_reason,
+                          "xref_rejections": pipeline.xref_rejections,
                           "asr_model": args.asr_model, "asr_revision": asr_revision(args.asr_model),
                           "llm_model": args.llm_model or LLM_REPO,
                           "llm_precision": precision, "asr_device": asr_device, "asr_phase": asr_phase,
                           "context_size": args.context_size, "max_new_tokens": args.max_new_tokens,
                           "prompt_token_budget": args.prompt_token_budget,
-                          "normalise_numbers": not args.raw_numbers, "adapter": args.adapter}
+                          "normalise_numbers": not args.raw_numbers, "adapter": args.adapter,
+                          "xref_gate": not args.no_xref_gate}
                 metrics.write(json.dumps(record, ensure_ascii=False) + "\n")
                 metrics.flush()
                 logger.info("Processed %d/%d: %s (%.1f s; average %.1f s)",
