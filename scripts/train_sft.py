@@ -359,6 +359,16 @@ def main() -> None:
         model.gradient_checkpointing_enable({"use_reentrant": False})
         print(f"fp16, không lượng tử hoá: {sum(p.numel() for p in model.parameters()) * 2 / 2**30:.2f} "
               f"GiB trọng số chia trên {count} card")
+    # peft thử từng dispatcher để chọn lớp LoRA. Với nf4 thì dispatcher bitsandbytes khớp
+    # trước; với nn.Linear thường thì tới lượt dispatch_torchao, và nó gọi
+    # is_torchao_available() -- hàm này RAISE ImportError khi phiên bản không đủ mới thay vì
+    # trả False. Kaggle có torchao 0.10.0, peft đòi > 0.16.0, nên fp16 vỡ ngay lúc dựng
+    # adapter. Ta không dùng torchao chút nào, nên nói thẳng là không có.
+    import peft.import_utils
+    import peft.tuners.lora.torchao as lora_torchao
+    peft.import_utils.is_torchao_available = lambda: False
+    lora_torchao.is_torchao_available = lambda: False
+
     model = get_peft_model(model, LoraConfig(
         r=args.lora_r, lora_alpha=args.lora_alpha, lora_dropout=0.05, bias="none",
         task_type="CAUSAL_LM",
