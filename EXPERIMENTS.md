@@ -918,3 +918,67 @@ Tệ nhất là câu ngắn và giọng vùng: `"Ừ bật lên giúp chị đi 
 | Đọc catalogue sai chỗ, làm yếu phép đo mà không báo lỗi | Tool nằm lồng trong `apps[].tools[]`; tôi đọc `catalog["tools"]` → rỗng → hồ sơ app thiếu cả 147 tên/mô tả tool, và `kind` rỗng nên mọi tool bị coi là `write` (2024 "lệnh ghi" thay vì 716) | Khi một phép đếm trả về 0 hoặc trả về *đúng tổng số*, nghi ngay là đọc sai khoá — và `raise` thay vì mặc định im lặng. Hai phép đo của tôi bị làm yếu trước khi tôi phát hiện |
 | Chỉ lưu checkpoint theo epoch | Lượt 320 mẫu chết ở bước 46/80 sau **4 giờ 12 phút**, `save_strategy="epoch"` + `--epochs 1` nên không còn gì; mất trắng | Lưu theo **bước** cho mọi lượt dài hơn 1 giờ, và để `--resume` sẵn từ lần chạy đầu |
 | Vá một lỗi bằng đường dẫn cứng | `HOLDOUT_IDS = Path('/kaggle/input/lifemate-sft/...')` trong khi dataset mount ở `/kaggle/input/datasets/<user>/<slug>/` → `.exists()` False → preflight lấy mẫu từ **cả split**, nhiễm lại y như lỗi đã vá | Dò bằng `glob`, và in đường dẫn đã chọn ra log. Vết vá chỉ đúng khi nó chạy đúng ở môi trường thật |
+
+## 2026-11-04 — local_v5: cắt prompt không phải nguyên nhân "không ghi"
+
+`results/local_v5/` — 50 mẫu held-out **có nhãn**, catalogue **đầy đủ**, không adapter. Đây là
+phép đo dự án thiếu từ đầu: `local_v1` (22.52) chạy `public_test` không nhãn nên không chấm lại
+được, `local_v4` có nhãn nhưng cắt prompt nên vô dụng làm mốc.
+
+**Điểm 0.0390 (3.90).** 1/50 hoàn hảo, 47/50 ăn 0, cả 47 đều vì `state_hash` lệch.
+
+| bucket | local_v4 (cắt 1800) | local_v5 (không cắt) |
+|---|---|---|
+| `đúng hẳn` | 0% | **2%** |
+| `ghi thiếu` | 1% | 16% |
+| `ghi sai` | 36% | **58%** |
+| `KHÔNG ghi` | 48% | **16%** |
+| `dừng đúng` | 12% | 2% |
+
+Kết quả này **ngược dự đoán của tôi**. Tôi vẫn nói chỗ nghẽn là "model không hành động" và
+fine-tune là để sửa bucket `KHÔNG ghi`. Cho đủ catalogue thì `KHÔNG ghi` sụp 48% → 16% mà
+`ghi sai` phình 36% → 58%. Cắt prompt **không tạo ra** lỗi không-hành-động; nó chỉ làm model tê
+liệt, và cái dốt bên dưới vẫn nguyên. Mục tiêu của fine-tune phải đổi sang `ghi sai`.
+
+### Vì sao `ghi sai`: model bịa định dạng ID
+
+Đo trên chính 50 mẫu đó:
+
+| | |
+|---|---|
+| Lệnh có tham số `x-ref` | 48 |
+| ...thiếu một lệnh **đọc** đi trước | **0 (0%)** |
+| Lệnh `x-ref` đúng tool | 31 |
+| ...nhưng sai ID hoàn toàn | **11 (35%)** |
+| Lệnh `x-ref` sai cả tool | 20 |
+
+Dòng `0%` **giết** luật "read-before-write cho `x-ref`" mà bản kế hoạch phụ lục trong
+`docs/context.txt` đề xuất, và tôi đã định đi theo: model **đã luôn** đọc trước khi ghi. Luật
+đó không bắt trúng một lệnh nào.
+
+Lỗi thật: `cont_002` (ID thật `c_04`), `contact_01` (`c_03`), `ct_001` (`c_01`), `bill_001`
+(`bill_01`), `light_bedroom` (`light_bedroom2`). Model bịa ra **quy ước đặt tên**.
+
+Hai điều khiến nó sửa được bằng code:
+
+1. `SYSTEM_PROMPT` **đã** dặn "Lấy ID từ kết quả công cụ... không tự tạo ID" → nhắc bằng lời
+   không đủ.
+2. `env.validate()` **không** kiểm tra `x-ref` có tồn tại. Submission lấy từ
+   `env.get_tool_calls()`, nên `cont_002` đã **chạy thật**.
+
+→ Màng chắn `x-ref` (`548ca96`), A/B ở `results/local_v6/`. Lỗ đã biết: giá trị sai mà **có**
+xuất hiện ở đâu đó thì không bắt được (`train_0011` nhồi số điện thoại vào `contact_id`, số đó
+có trong kết quả `contacts.search`).
+
+### Nhân đây, chốt một câu hỏi tuân thủ còn mở
+
+Submission là `env.get_tool_calls()` — **log của chính ToolEnv**, không phải danh sách ta tự
+dựng. Nên ta không thể lệch khỏi nó, và `env.validate()` không đẩy entry vào log đó
+(`train_0011` gọi validate 3 lần, log có đúng 3 lệnh). Dùng `validate` làm cửa chặn là hợp luật.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Tin vào bucket lớn nhất mà chưa đo bucket đó ở cấu hình thật | Tôi lặp lại "48% không hành động" suốt nhiều lượt và định hướng cả fine-tune theo nó. Ở catalogue đầy đủ nó là 16%, còn `ghi sai` mới là 58% | Một con số đo ở **cấu hình đã bị loại bỏ** (local_v4 cắt prompt) không được dùng để chọn hướng cho cấu hình đang dùng. Đo lại trước khi xây |
+| Định cài một luật trước khi đo xem nó có bắn trúng gì | Luật "read-before-write" nghe rất đúng và tôi đã đề xuất nó; đo ra 0/48 lệnh vi phạm | Trước khi cài một cửa chặn, đếm xem nó sẽ từ chối bao nhiêu lệnh trong lượt chạy gần nhất. Bằng 0 thì không cài |
