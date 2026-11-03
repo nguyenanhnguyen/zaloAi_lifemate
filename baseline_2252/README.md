@@ -48,16 +48,48 @@ Ngoài ra cần **`llama-server`** của llama.cpp (không có trong git, không
 bằng script này). Code tìm nó theo thứ tự: biến môi trường `LLAMA_SERVER` → đệ quy trong
 `models/llama.cpp/` → `PATH`.
 
-## Cấu hình đã chạy
+## Cấu hình: cái gì chứng minh được, cái gì chỉ suy ra
+
+**Chứng minh được từ `submission.metrics.jsonl` của chính lần chạy** (mỗi dòng tự ghi lại):
 
 | | |
 |---|---|
-| LLM | Qwen3.5-4B **Q8_0** GGUF, llama.cpp server, `--flash-attn on`, `--jinja` |
-| Context | 12288 |
-| `max_new_tokens` | 1024 |
-| Thinking | **bật**, `--reasoning-budget 512`, `--reasoning-format deepseek` |
-| ASR | PhoASR-whisper-small |
-| `transformers` | **4.57.6** (repo hiện tại dùng 5.13.0 — phải pin lại để chạy bản này) |
+| LLM | `Qwen3.5-4B-Q8_0.gguf` |
+| ASR | `Qualcomm-AI-Research/PhoASR-whisper-small` |
+| Thiết bị | **llama.cpp trên CPU** — `whole_gpu_used_mb` chỉ 787 MB |
+
+**Chỉ suy ra, không có trong file đo nào.** `metrics.jsonl` của bản này *không* ghi
+`context_size`, `max_new_tokens` hay `thinking_tokens` (các bản sau mới ghi). Những số dưới
+đây là **mặc định của `scripts/infer.py`**, cộng với lệnh chạy đầy đủ mà
+`pipeline/README.md` ghi là `python scripts/infer.py --split public_test --output
+submission.jsonl` — không truyền thêm cờ nào:
+
+| | Mặc định | Khớp với số đo? |
+|---|---|---|
+| `--context-size` | 12288 | không kiểm được |
+| `--max-new-tokens` | 1024 | không kiểm được |
+| `--thinking-tokens` | 512 (thinking **bật**) | không kiểm được |
+| `--max-seconds` | 600 | ✔ `max_seconds` quan sát 529.7 < 600 |
+| `--max-steps` | 8 | ✔ `llm_turns` trung bình 4.18, không mẫu nào vượt 8 |
+| `--asr-beams` | 5 | không kiểm được |
+
+Hai dòng có dấu ✔ là kiểm tra nhất quán, không phải bằng chứng — chúng loại trừ việc cờ bị
+ghi đè, chứ không khẳng định. Ba dòng đầu thì **không có cách nào xác nhận** từ dữ liệu còn
+lại.
+
+Cờ llama.cpp trong `llm_agent.py`: `--flash-attn on --jinja --ctx-size 12288 --parallel 1
+--batch-size 512 --ubatch-size 128 --fit on --fit-target 384 --cache-ram 512
+--reasoning-format deepseek --no-context-shift`.
+
+`transformers` pin **4.57.6** (repo hiện tại dùng 5.13.0 — phải pin lại để chạy bản này).
+
+## Khoảng mờ không gỡ được
+
+1. **Cây làm việc lúc chạy có thể khác commit.** Git không thấy sửa chưa commit. Bằng chứng
+   gián tiếp là mạnh — `metrics.jsonl` tự ghi đúng hai model mà code pin, và `src/` không
+   đổi giữa `f71bc40` và `7002744` — nhưng nó là bằng chứng gián tiếp.
+2. **Ba tham số context/token/thinking** như bảng trên.
+3. **Phiên bản llama.cpp.** Xem mục dưới; đây là lỗ hổng nặng nhất.
 
 ## Cảnh báo quan trọng: 22.52 không phải điểm hợp lệ
 
@@ -91,6 +123,46 @@ Nên con số 22.52 dùng được để làm gì, và không dùng được đ�
 
 Nếu một trong hai câu trả lời là không, thì folder này thuần là tư liệu, và mọi so sánh với
 22.52 chỉ còn giá trị chẩn đoán.
+
+## Đã mất gì — thứ đồng đội muốn dùng lại mà không còn
+
+Xếp theo mức độ đau, nặng nhất trước.
+
+**1. Phiên bản `llama-server` của llama.cpp. Mất hẳn, và không pin ở đâu cả.**
+Đây là lỗ hổng nặng nhất của bản phục dựng. Không `requirements.txt`, `README`, log hay
+commit nào ghi build number. Mà các cờ đang dùng — `--fit on --fit-target 384 --cache-ram
+512 --reasoning-budget` — là cờ mới và llama.cpp đổi tên/ngữ nghĩa cờ rất nhanh. Tải một
+build hôm nay thì cờ có thể không còn tồn tại, hoặc còn tên mà khác hành vi. **Hệ quả: bản
+22.52 không tái lập bit-đúng được, chỉ tái lập gần đúng.**
+
+**2. `models/llama.cpp/server.log`.** Chưa từng được commit. Nó chứa đúng thứ mục 1 cần:
+build number, cách llama.cpp chia GPU/CPU, tốc độ token. Mất một file log đã xoá mục 1.
+
+**3. Điểm từng mẫu của `local_v1`.** `public_test` không có nhãn, nên 22.52 là **một con số
+tổng duy nhất**. Không thể phân tách mẫu nào đúng mẫu nào sai trên lần chạy tốt nhất của dự
+án — tức không làm được phân tích lỗi trên chính bản đáng học nhất. Không gỡ được, kể cả có
+đủ model, trừ khi BTC phát hành nhãn.
+
+**4. `train_quality.jsonl` và `train_quality.metrics.jsonl`: 0 byte.** Một lượt chạy trên
+split `train` (**có nhãn**) với cấu hình này đã được khởi động và không bao giờ ra kết quả.
+Đó chính là mảnh ghép sẽ cho phép so Qwen3.5-4B với Qwen3-4B-Instruct **một cách hợp lệ,
+trên dữ liệu có nhãn, cùng ngân sách thời gian**. Hiện ta không có cách nào biết 9 điểm chênh
+giữa 22.52 và 13.41 là do model hay do 149 giây. Cái này **chạy lại được** — và nên chạy.
+
+**5. Trọng số GGUF + PhoASR.** Đã xoá khỏi đĩa (chỉ còn thư mục `.locks` trong cache HF làm
+chứng), nhưng **tải lại được chính xác** nhờ revision đã pin, nên chỉ mất nếu repo thượng
+nguồn biến mất. `EXPERIMENTS.md:675` đã ghi nhận việc xoá này từ trước.
+
+**Thứ KHÔNG mất, và đáng giá nhất cho đồng đội:** `pipeline/submission.jsonl` — đủ 634 dự
+đoán của cấu hình điểm cao nhất. Không có nhãn để chấm, nhưng **so từng mẫu với bài nộp của
+bất kỳ bản sau** thì được, và đó là cách dùng được ngay: chỗ nào bản mới gọi tool khác bản
+22.52, chỗ đó là nghi phạm.
+
+## Việc nên làm ngay để khỏi mất thêm
+
+1. `python restore.py` rồi **lưu trữ** GGUF + snapshot ASR ra ngoài cache HF.
+2. Khi nào chạy lại bản này, ghi `llama-server --version` vào `pipeline/` **trước** khi chạy.
+3. Chạy lượt `--split train` còn thiếu (mục 4) — nó trả lời câu model-hay-thời-gian.
 
 ## Nội dung folder
 
