@@ -1,4 +1,4 @@
-﻿"""Single entry point: prepare models, run offline inference, write submission JSONL."""
+"""Single entry point: prepare models, run offline inference, write submission JSONL."""
 from __future__ import annotations
 
 import argparse
@@ -112,12 +112,17 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true", help="Continue an output containing a valid completed prefix")
     parser.add_argument("--max-steps", type=int, default=8, help="Bounded LLM turns per sample (1-16)")
     parser.add_argument("--max-seconds", type=float, default=30, help="Sample budget; 30 matches the competition's A30 rule")
-    parser.add_argument("--no-xref-gate", action="store_true",
-                        help="Tắt màng chắn x-ref. Mặc định là BẬT: từ chối lệnh có tham số "
-                             "x-ref mang ID chưa từng xuất hiện trong kết quả công cụ hay lịch "
-                             "sử. env.validate() không kiểm tra điều này -- local_v5 nộp được "
-                             "`cont_002`/`bill_001` trong khi ID thật là `c_04`/`bill_01`, và "
-                             "11/31 lệnh x-ref đúng tool vẫn sai ID. Dùng cờ này để A/B.")
+    parser.add_argument("--xref-gate", action="store_true",
+                        help="Từ chối lệnh có tham số x-ref mang ID chưa từng xuất hiện trong "
+                             "kết quả công cụ hay lịch sử (env.validate() không kiểm tra điều "
+                             "này). Mặc định TẮT vì đã đo: local_v6 bật nó trên 50 mẫu y hệt "
+                             "local_v5 và điểm đứng nguyên 3.90, chỉ 1 mẫu chuyển từ 'ghi sai' "
+                             "sang 'KHÔNG ghi', tức tệ hơn một chút. Nó SỬA ĐÚNG hành vi khi "
+                             "bắn trúng (train_0283: chặn ID bịa `12345` -> model gọi "
+                             "contacts.search -> dùng `c_01` thật), nhưng ID đúng không phải "
+                             "chỗ nghẽn: state_hash vẫn lệch vì lý do khác. Và nó tốn lượt -- "
+                             "2/10 mẫu bị bắn trúng chạm time_limit, 2 chạm step_limit. Bật lại "
+                             "khi 'ghi sai' đã giảm vì lý do khác.")
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--prompt-token-budget", type=int, default=100_000,
                         help="Route/compact tool schemas down to about this many prompt tokens. "
@@ -268,7 +273,7 @@ def main() -> None:
                    precision=precision, prompt_token_budget=args.prompt_token_budget,
                    adapter=args.adapter)
     pipeline = Pipeline(asr, llm, max_steps=args.max_steps, max_seconds=args.max_seconds,
-                        xref_gate=not args.no_xref_gate)
+                        xref_gate=args.xref_gate)
     metrics_path = args.metrics_output or args.output.with_suffix(".metrics.jsonl")
     if metrics_path.resolve() == args.output.resolve():
         llm.close()
@@ -324,7 +329,7 @@ def main() -> None:
                           "context_size": args.context_size, "max_new_tokens": args.max_new_tokens,
                           "prompt_token_budget": args.prompt_token_budget,
                           "normalise_numbers": not args.raw_numbers, "adapter": args.adapter,
-                          "xref_gate": not args.no_xref_gate}
+                          "xref_gate": args.xref_gate}
                 metrics.write(json.dumps(record, ensure_ascii=False) + "\n")
                 metrics.flush()
                 logger.info("Processed %d/%d: %s (%.1f s; average %.1f s)",

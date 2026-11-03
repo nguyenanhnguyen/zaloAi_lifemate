@@ -982,3 +982,43 @@ dựng. Nên ta không thể lệch khỏi nó, và `env.validate()` không đ�
 |---|---|---|
 | Tin vào bucket lớn nhất mà chưa đo bucket đó ở cấu hình thật | Tôi lặp lại "48% không hành động" suốt nhiều lượt và định hướng cả fine-tune theo nó. Ở catalogue đầy đủ nó là 16%, còn `ghi sai` mới là 58% | Một con số đo ở **cấu hình đã bị loại bỏ** (local_v4 cắt prompt) không được dùng để chọn hướng cho cấu hình đang dùng. Đo lại trước khi xây |
 | Định cài một luật trước khi đo xem nó có bắn trúng gì | Luật "read-before-write" nghe rất đúng và tôi đã đề xuất nó; đo ra 0/48 lệnh vi phạm | Trước khi cài một cửa chặn, đếm xem nó sẽ từ chối bao nhiêu lệnh trong lượt chạy gần nhất. Bằng 0 thì không cài |
+
+## 2026-11-04 — local_v6: màng chắn x-ref chạy đúng ý định mà không ăn điểm
+
+A/B đổi **đúng một biến** trên chính 50 mẫu của `local_v5`.
+
+| | tắt (v5) | bật (v6) |
+|---|---|---|
+| Điểm | 3.90 | **3.90** |
+| `state_hash` lệch | 47/50 | 47/50 |
+| `ghi sai` | 58% | 56% |
+| `KHÔNG ghi` | 16% | 18% |
+| Lệnh bị từ chối | 0 | 10 (trên 10 mẫu) |
+
+Chuyển dịch: **1 mẫu, `ghi sai` → `KHÔNG ghi`** — tệ hơn một chút. Theo tiêu chí đặt ra **trước**
+khi chạy, màng chắn đã bị tắt mặc định (`--xref-gate` để bật).
+
+Cơ chế thì **chạy đúng**:
+
+```
+train_0283 rejected: sms.send  ID không tồn tại: 12345. Bạn đang TỰ TẠO ID...
+train_0283 step 3: contacts.search {'query': 'mẹ'}
+train_0283 step 4: sms.send {'contact_id': 'c_01', ...}   <- ID THẬT
+```
+
+Model bị chặn thì đi đọc rồi dùng ID thật. Nó **biết** phải làm gì khi bị buộc; bịa ID chỉ là
+đường tắt nó chọn khi không ai chặn.
+
+Vì sao điểm đứng yên: **ID đúng không phải điều kiện còn thiếu.** 47/50 mẫu lệch `state_hash`
+vì chuyện khác — 20/51 lệnh `x-ref` **sai cả tool**, sai tham số không phải ID, hoặc thiếu hẳn
+một tác vụ. Sửa ID một lệnh mà hash vẫn lệch thì vẫn 0 điểm.
+
+Giá phải trả: mỗi lần chặn tốn một lượt LLM. Trong 10 mẫu bị bắn trúng, **2 chạm `time_limit`,
+2 chạm `step_limit`**. Ở ngân sách 30 giây của vòng Docker thì đắt hơn nhiều.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Sửa một lỗi có thật mà chưa hỏi nó có đủ để ăn điểm | Màng chắn `x-ref` sửa đúng lớp lỗi đã đo được (11/31 lệnh sai ID) và quả thật buộc model đi đọc ID thật, nhưng điểm đứng nguyên 3.90 vì `state_hash` cần **mọi** lệnh ghi đúng, không chỉ ID đúng | Với thang điểm all-or-nothing như `state_hash`, một lỗi "có thật và đo được" vẫn có thể không phải **lỗi chặn**. Hỏi trước: nếu sửa xong lỗi này, mẫu có đạt điểm không? |
+| Dựng cửa chặn trên đường đi nóng mà không tính lượt | 2/10 mẫu bị chặn chạm `time_limit`, 2 chạm `step_limit` | Mỗi lần từ chối là một lượt LLM. Ở ngân sách 8 lượt / 30 giây, cửa chặn phải tính vào ngân sách ngay từ khi thiết kế |

@@ -28,21 +28,52 @@ Vậy nên con số cần đọc không phải "sửa hết 11 ca" mà là **b�
 Lỗi `x-ref` **không** kích hoạt quy tắc "lặp lại lệnh sai thì dừng". Nếu dừng, mẫu rơi vào
 bucket `KHÔNG ghi` — đúng thứ ta đang cố thoát ra. `max_steps` 8 đã chặn vòng lặp.
 
-## Kết quả
-
-*chờ chạy*
+## Kết quả — màng chắn KHÔNG ăn điểm, đã tắt mặc định
 
 | | local_v5 (tắt) | local_v6 (bật) |
 |---|---|---|
-| Điểm | **3.90** | — |
-| `đúng hẳn` | 2% | — |
-| `ghi sai` | 58% | — |
-| `KHÔNG ghi` | 16% | — |
-| `dừng đúng` | 2% | — |
-| Lệnh bị màng chắn từ chối | 0 | — |
+| **Điểm** | **3.90** | **3.90** |
+| `state_hash` lệch | 47/50 | 47/50 |
+| `đúng hẳn` | 2% | 2% |
+| `ghi thiếu` | 16% | 16% |
+| `ghi sai` | 58% | **56%** |
+| `KHÔNG ghi` | 16% | **18%** |
+| `dừng đúng` | 2% | 2% |
+| Lệnh bị từ chối | 0 | **10, trên 10 mẫu** |
+| Quỹ đạo đổi | — | 10/50 |
 
-Con số phán xét: `ghi sai` phải **giảm** mà `KHÔNG ghi` **không tăng** bù lại. Nếu lệnh chỉ
-chuyển từ `ghi sai` sang `KHÔNG ghi` thì màng chắn vô ích và phải tắt.
+Chuyển dịch bucket: **1 mẫu, `ghi sai` → `KHÔNG ghi`**. Tức là tệ hơn một chút. Theo đúng tiêu
+chí đã đặt ra trước khi chạy ("nếu chỉ chuyển bucket thì tắt"), màng chắn giờ mặc định **TẮT**,
+bật lại bằng `--xref-gate`.
+
+## Nhưng nó sửa đúng hành vi — chỗ nghẽn chỉ không nằm ở đó
+
+Giữ lại code vì phép đo cho thấy cơ chế **chạy đúng ý định**:
+
+```
+train_0283 step 1: ewallet.get_balance {}
+train_0283 rejected: sms.send  ID không tồn tại: 12345. Bạn đang TỰ TẠO ID...
+train_0283 step 3: contacts.search {'query': 'mẹ'}
+train_0283 step 4: sms.send {'contact_id': 'c_01', ...}     <- ID THẬT
+```
+
+Model bị chặn, đi đọc, rồi dùng ID thật. `train_0214` cũng vậy. Đây là bằng chứng trực tiếp
+rằng model **biết** phải làm gì khi bị buộc, và việc bịa ID chỉ là đường tắt nó chọn khi không
+ai chặn.
+
+Vậy vì sao điểm không nhúc nhích: **ID đúng không phải điều kiện còn thiếu.** 47/50 mẫu lệch
+`state_hash` vì chuyện khác — chọn sai tool (20/51 lệnh `x-ref` sai cả tool), sai tham số không
+phải ID, thiếu hẳn một tác vụ. Sửa ID trong một lệnh của một mẫu vẫn lệch hash thì vẫn 0 điểm.
+
+## Giá phải trả
+
+Mỗi lần chặn tốn một lượt LLM. Trong 10 mẫu bị bắn trúng: **2 chạm `time_limit`, 2 chạm
+`step_limit`** (`train_0214` dùng hết 8 lượt). Ở ngân sách 30 giây của vòng Docker, giá này
+đắt hơn ở đây nhiều.
+
+→ Bật lại khi `ghi sai` đã giảm vì lý do khác, và khi còn dư lượt.
+
+## Lệnh chạy
 
 ## Lệnh chạy
 
@@ -50,7 +81,7 @@ chuyển từ `ghi sai` sang `KHÔNG ghi` thì màng chắn vô ích và phải 
 env\Scripts\python.exe scripts\infer.py --split train ^
   --sample-ids (cat results\local_v6\ids50.txt) ^
   --transcript-cache train_all.transcripts.jsonl ^
-  --llm-precision 4bit --context-size 10240 --max-seconds 600 ^
+  --llm-precision 4bit --context-size 10240 --max-seconds 600 --xref-gate ^
   --output results\local_v6\xref_gate.jsonl ^
   --metrics-output results\local_v6\xref_gate.metrics.jsonl
 ```
@@ -63,4 +94,4 @@ env\Scripts\python.exe scripts\diag\action_buckets.py results\local_v6\xref_gate
   --baseline results\local_v5\baseline.jsonl
 ```
 
-Tắt màng chắn để quay lại hành vi cũ: `--no-xref-gate`.
+Bỏ `--xref-gate` để quay lại hành vi `local_v5` (mặc định hiện tại).
