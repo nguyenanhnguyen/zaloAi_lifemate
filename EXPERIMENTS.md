@@ -853,3 +853,68 @@ tool-calling** (không so sánh thời gian, vì bản cũ không đúng luật 
 | Tập đo nhiễm bởi tập train | 42/50 mẫu preflight nằm trong `sft.train.jsonl`; split SFT sạch (giao nhau 0) nhưng preflight lấy mẫu từ cả 1545 mẫu → bước 4 RUNBOOK sẽ cho điểm tăng trên dữ liệu đã học thuộc | `HOLDOUT_IDS` trỏ `sft.eval.jsonl`, preflight chỉ lấy từ đó, kèm `assert` số mẫu; kiểm giao nhau giữa MỌI tập đo và tập train trước khi tin một phép so |
 | Gộp hai thay đổi vào một run | V17 vá cả logic pushback lẫn ba dòng `SYSTEM_PROMPT`; prompt đổi đường đi của cả 50 mẫu nên +0,60 điểm không quy được cho cái nào (`train_0469` lật hash với số lượt **giảm** 6→3 — pushback phải *thêm* lượt) | Một thay đổi một run khi còn muốn biết nguyên nhân; `diff_runs.py` để so từng mẫu |
 | Số từ file tải về cụt, trông vẫn hợp lý | `events.jsonl` của V17 phủ 21/50 mẫu nên phép tách đọc ra 10 write-sai / 22 không-write, **lật ngược** tỉ lệ 25/9 của V16 — 29 mẫu cuối chỉ là không có `tool_end` nào | Đối chiếu độ phủ `sample_id` với `metrics.jsonl` rồi mới tin; `read_run.py` giờ bỏ hẳn mục suy từ events khi thiếu; tải bằng *Download All* |
+
+---
+
+## Truy hồi tool: hướng cắt context đóng lại bằng số đo (03/11, laptop)
+
+`scripts/diag/route_recall.py`, 1196 mẫu `sft.train.jsonl`, truy vấn là **transcript ASR**
+(WER 28.9%) chứ không phải `audio_text`, xếp hạng chỉ trong số app **đã cài** của từng mẫu.
+
+| | app@6 | app@10 | tool@6 | tool@10 |
+|---|---|---|---|---|
+| Từ vựng (BM25-ish, giao tập từ) | 70.9% | 89.6% | 31.4% | 41.9% |
+| **Embedding `BAAI/bge-m3`** (CLS, fp16, RTX 2050) | **73.4%** | **92.1%** | **33.9%** | **46.7%** |
+
+Embedding thắng từ vựng ở **mọi** mức, nên phép thử công bằng với nó. Nhưng ngưỡng dùng được
+là **gần 100%**: tool cần mà không có trong prompt thì mẫu đó ăn 0, không tầng nào cứu. Cho
+sẵn 10 tool chỉ đúng 46.7% mẫu.
+
+**Vì sao thất bại — kết cấu, không phải chất lượng retriever.** Tool cần được phát hiện *giữa*
+quỹ đạo, không suy ra được từ câu yêu cầu: `"nhắn Sếp Dũng giờ mới"` cần `contacts.search` để
+lấy ID, mà câu nói không hề nhắc đến danh bạ. Đúng pattern `read → lấy ID → write`. Không
+retriever nào đọc câu yêu cầu rồi biết trước phải tra danh bạ. Đây cũng là tool bị bỏ sót
+nhiều nhất trong phép so hai bài nộp bên dưới (216 so với 74).
+
+**Hệ quả:** giữ nguyên toàn bộ catalogue của app đã cài, như `_available_tools` đang làm.
+Không mua thêm được mẫu huấn luyện bằng cách làm prompt ngắn — ngân sách 320 mẫu là trần do
+tốc độ, và `local_v4` đã trả 17 điểm (22.52 → 5.50) cho đúng bài học này.
+
+## Chín điểm chênh 22.52 vs 13.41 nằm ở đâu (03/11, laptop)
+
+`scripts/diag/diff_submissions.py`, cùng 634 mẫu `public_test`, không cần nhãn.
+
+| | A = 22.52 | B = kaggle_v1 13.41 |
+|---|---|---|
+| Lệnh **ghi** (`kind == write`) | 716 (1.13/mẫu) | **465** (0.73/mẫu) |
+| Mẫu không ghi gì | 177 | **312** |
+| `sys.ask_missing_info` | 33 | **109** |
+| `state_hash` khác nhau | — | 441/634 (69.6%) |
+
+**181 mẫu (28.5%) bản A ghi mà bản B không ghi gì.** Xác nhận độc lập trên 634 mẫu cho kết
+luận trước đó chỉ dựa trên 100 mẫu của `local_v4`: chỗ mất điểm là **hành vi không hành
+động**, đúng thứ SFT nhắm vào.
+
+## WER thật của ASR (03/11, laptop, CPU)
+
+`scripts/diag/asr_wer.py` trên `train_all.transcripts.jsonl` (PhoWhisper-large greedy), 1545
+mẫu `train` có `audio_text`:
+
+| | |
+|---|---|
+| WER trung bình / trung vị | **28.9% / 26.9%** |
+| p75 / p90 / p99 | 38.2% / 52.0% / 78.9% |
+| Mẫu WER > 30% | **636/1545 (41.2%)** |
+| Mẫu hoàn hảo | 38/1545 (2.5%) |
+
+Tệ nhất là câu ngắn và giọng vùng: `"Ừ bật lên giúp chị đi em."` → `"ờ và nên rất chĩ đẹ."`
+(100%). Đây là mốc chặn trên của toàn pipeline, nhưng **không** phải chỗ nghẽn hiện tại:
+`train_0354` có WER 0.00 mà vẫn 0 điểm.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Đọc catalogue sai chỗ, làm yếu phép đo mà không báo lỗi | Tool nằm lồng trong `apps[].tools[]`; tôi đọc `catalog["tools"]` → rỗng → hồ sơ app thiếu cả 147 tên/mô tả tool, và `kind` rỗng nên mọi tool bị coi là `write` (2024 "lệnh ghi" thay vì 716) | Khi một phép đếm trả về 0 hoặc trả về *đúng tổng số*, nghi ngay là đọc sai khoá — và `raise` thay vì mặc định im lặng. Hai phép đo của tôi bị làm yếu trước khi tôi phát hiện |
+| Chỉ lưu checkpoint theo epoch | Lượt 320 mẫu chết ở bước 46/80 sau **4 giờ 12 phút**, `save_strategy="epoch"` + `--epochs 1` nên không còn gì; mất trắng | Lưu theo **bước** cho mọi lượt dài hơn 1 giờ, và để `--resume` sẵn từ lần chạy đầu |
+| Vá một lỗi bằng đường dẫn cứng | `HOLDOUT_IDS = Path('/kaggle/input/lifemate-sft/...')` trong khi dataset mount ở `/kaggle/input/datasets/<user>/<slug>/` → `.exists()` False → preflight lấy mẫu từ **cả split**, nhiễm lại y như lỗi đã vá | Dò bằng `glob`, và in đường dẫn đã chọn ra log. Vết vá chỉ đúng khi nó chạy đúng ở môi trường thật |
