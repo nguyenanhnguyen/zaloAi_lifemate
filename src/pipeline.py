@@ -105,7 +105,7 @@ def _native_tools(tools: list[dict]) -> list[dict]:
 class Pipeline:
     def __init__(self, asr_model: WhisperASR, llm_agent: LLMAgent,
                  *, max_steps: int = MAX_STEPS, max_seconds: float = 600,
-                 xref_gate: bool = True) -> None:
+                 xref_gate: bool = False) -> None:
         self.asr_model = asr_model
         self.llm_agent = llm_agent
         self.max_steps = max_steps
