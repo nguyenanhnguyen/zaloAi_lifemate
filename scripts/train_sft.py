@@ -246,6 +246,17 @@ def main() -> None:
     parser.add_argument("--eval-limit", type=int,
                         help="likewise for the eval set; 0 turns evaluation off. 243 samples of "
                              "eval cost about 1.5 h, which is budget better spent on training")
+    parser.add_argument("--save-steps", type=int, default=10,
+                        help="lưu adapter mỗi bao nhiêu optimizer step. Mặc định 10 (~50 phút) "
+                             "vì một lượt chết ở bước 46/80 đã mất trắng 4 giờ do chỉ lưu theo "
+                             "epoch")
+    parser.add_argument("--resume", nargs="?", const="latest",
+                        help="tiếp tục huấn luyện. Không tham số = checkpoint mới nhất trong "
+                             "--out; hoặc truyền thẳng đường dẫn checkpoint-N")
+    parser.add_argument("--device", choices=["single", "balanced"], default="single",
+                        help="single = một card, không có hook chuyển tensor của accelerate "
+                             "(chỗ nổ illegal memory access). balanced = chia trên mọi card, "
+                             "chỉ cần khi trọng số không vừa một card")
     parser.add_argument("--attn", choices=["sdpa", "block"], default="sdpa",
                         help="block = attention in query blocks, for cards where SDPA falls back "
                              "to the math kernel and its (L, L) score matrix does not fit")
@@ -345,7 +356,15 @@ def main() -> None:
     # 8192 x 151936 logit tensor is 2.5 GiB in fp16 and is upcast to fp32 for cross-entropy.
     # Splitting puts lm_head and that peak on the second card.
     count = torch.cuda.device_count()
-    device_map = "balanced" if count > 1 else ({"": 0} if count else None)
+    # Chia trên hai card bắt accelerate gắn hook pre_forward vào mỗi lớp để chuyển tensor qua
+    # card khác, và đó chính là chỗ "illegal memory access" nổ ra ở bước 46/80. fp16 là 7.49
+    # GiB, một T4 có 14.56 GiB, nên một card vừa -- và một card thì không có hook nào để nổ.
+    if args.device == "single" or count <= 1:
+        device_map = {"": 0} if count else None
+    else:
+        device_map = "balanced"
+    if count > 1:
+        print(f"{count} card, dùng {'MỘT card (cuda:0)' if device_map != 'balanced' else 'cả hai, chia balanced'}")
     model = AutoModelForCausalLM.from_pretrained(
         source, revision=revision, quantization_config=quant, dtype=dtype,
         device_map=device_map, attn_implementation=args.attn)
@@ -422,7 +441,11 @@ def main() -> None:
             # compute_loss returns no logits, and eval only needs eval_loss to pick a
             # checkpoint; without this Trainer would try to collect predictions it cannot get.
             prediction_loss_only=True,
-            save_strategy="epoch",
+            # Theo BƯỚC, không theo epoch. Lượt 320 mẫu chết ở bước 46/80 sau 4 giờ 12 phút và
+            # không để lại gì, vì save_strategy="epoch" với --epochs 1 chỉ lưu ở cuối. Với
+            # --save-steps 10 thì mất nhiều nhất ~50 phút, và luôn có adapter dùng được.
+            save_strategy="steps",
+            save_steps=args.save_steps,
             save_total_limit=2,
             bf16=bf16,
             fp16=not bf16,
@@ -448,8 +471,16 @@ def main() -> None:
     import contextlib
     from torch.nn.attention import SDPBackend, sdpa_kernel
     attention = sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]) if old_gpu else contextlib.nullcontext()
+    # "latest" = tiếp tục checkpoint mới nhất trong --out nếu có, khởi động mới nếu chưa có.
+    # Không dùng True vì True làm Trainer báo lỗi khi output_dir rỗng.
+    resume = args.resume
+    if resume == "latest":
+        found = sorted(Path(args.out).glob("checkpoint-*"),
+                       key=lambda p: int(p.name.split("-")[1]))
+        resume = str(found[-1]) if found else None
+        print(f"tiếp tục từ {resume}" if resume else "không thấy checkpoint, bắt đầu từ đầu")
     with attention:
-        trainer.train()
+        trainer.train(resume_from_checkpoint=resume)
         model.save_pretrained(args.out)
         tokenizer.save_pretrained(args.out)
         print(f"adapter written to {args.out}")
