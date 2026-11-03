@@ -164,12 +164,73 @@ bất kỳ bản sau** thì được, và đó là cách dùng được ngay: ch
 2. Khi nào chạy lại bản này, ghi `llama-server --version` vào `pipeline/` **trước** khi chạy.
 3. Chạy lượt `--split train` còn thiếu (mục 4) — nó trả lời câu model-hay-thời-gian.
 
-## Nội dung folder
+## Nội dung folder — không chỉ có code
 
 ```
 baseline_2252/
   README.md     file này
   restore.py    tải lại hai model theo đúng revision đã pin
-  pipeline/     cây code tại 7002744, nguyên vẹn, kèm submission + metrics của lần chạy
   models/       chỗ restore.py đặt trọng số (gitignore)
+  pipeline/     cây 7002744
 ```
+
+Trong `pipeline/`, xếp theo giá trị dùng lại, cao nhất trước.
+
+### `submission.jsonl` — 634 dự đoán của cấu hình điểm cao nhất
+
+Đây là tài sản đáng giá nhất trong folder, hơn cả code. Mỗi dòng là
+`{id, tool_calls, state_hash}`. Thống kê:
+
+| | |
+|---|---|
+| Tổng tool call | **2024** (3.19/mẫu) |
+| Mẫu không gọi tool nào | 14/634 |
+| Số tool khác nhau đã dùng | **117** / 147 trong catalogue |
+| Gọi nhiều nhất | `contacts.search` 216, `maps.search_place` 79, `flights.search` 60 |
+
+Không có nhãn nên không chấm lại được. Nhưng **so từng mẫu với bài nộp của bất kỳ bản sau**
+thì được ngay, bằng CPU: chỗ nào bản mới gọi tool khác bản 22.52 là nghi phạm. Đây là cách
+duy nhất hiện có để khai thác 22.52 mà không cần chạy lại nó.
+
+### `submission.metrics.jsonl` — 634 transcript của model ASR đã bị xoá
+
+Ngoài phần đo thời gian, mỗi dòng chứa `transcript` do
+`Qualcomm-AI-Research/PhoASR-whisper-small` sinh ra. **Đây là output duy nhất còn sót của
+model ASR đó.** Vì `public_test` không có nhãn nên không tính được WER, nhưng ghép với
+`public_test.transcripts.jsonl` (PhoWhisper-large, cùng 634 file audio) thì có **một bộ
+transcript cặp từ hai model ASR khác nhau trên cùng audio** — phân tích chỗ bất đồng được
+bằng CPU.
+
+### `src/pipeline.py` — `SYSTEM_PROMPT` của bản 22.52
+
+Khác bản hiện tại đúng ba dòng, và khác biệt đó chưa được ghi nhận ở đâu như một diff:
+
+```
+-  Suy luận ngắn gọn trước khi chọn hành động.
++  KHÔNG viết giải thích, kế hoạch hay lời dẫn. Mỗi lượt chỉ xuất một trong hai:
++  một lệnh gọi công cụ, hoặc đúng chữ DONE. Không thêm gì khác.
+```
+
+Bản 22.52 **cho phép** model suy luận ngắn (và bật thinking ở tầng llama.cpp). Bản hiện tại
+**cấm hẳn** văn xuôi. Đó là một thay đổi hành vi thật, đi cùng chiều với 22.52 → 13.41, và
+đáng kiểm riêng.
+
+### `lifemate_kaggle.ipynb` — 19 cell, **không phải thứ đã chạy 22.52**
+
+Phải nói rõ để không ai nhầm: notebook này là bản Kaggle GPU, còn 22.52 chạy **local,
+llama.cpp trên CPU**. Nó là tổ tiên của `lifemate_kaggle_v2.ipynb` hiện tại và có
+`SYSTEM_PROMPT` **riêng, khác** bản trong `src/pipeline.py` (cell 12). Giá trị của nó là làm
+mốc so cho notebook hiện tại, không phải để tái lập 22.52.
+
+### Còn lại
+
+| | |
+|---|---|
+| `pipeline/README.md` | ghi lệnh chạy đầy đủ — căn cứ để suy ra cấu hình ở mục trên |
+| `requirements.txt` | pin `transformers==4.57.6`, `huggingface-hub==0.36.2` |
+| `scripts/infer.py` | 167 dòng, mọi cờ và mặc định |
+| `src/llm_agent.py` | 161 dòng, cách dựng và nuôi llama.cpp server |
+| `src/asr.py` | 60 dòng |
+| `docs/context.txt` | luật BTC bản 380 dòng của thời điểm đó |
+| `debug.jsonl` + metrics | 1 mẫu, dùng để thử nhanh |
+| `train_quality.*.jsonl` | **0 byte** — xem mục "Đã mất gì", điểm 4 |
