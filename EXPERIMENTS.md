@@ -1062,3 +1062,75 @@ Thêm in **VRAM đỉnh** cuối lượt chạy. Không có nó thì mỗi lần
 | Vá bằng cách đặt `device_map`, rồi tin rằng Trainer biết | `device_map={"":0}` nói với accelerate, **không** nói với Trainer. Trainer tự suy `n_gpu` từ `device_count()` và bọc `DataParallel`, dựng lại đúng cái lỗi vừa vá | Khi "tắt" một thứ, phải tắt ở **mọi** tầng tự suy ra nó. Một tầng đọc `device_map`, tầng khác đọc `device_count()` |
 | Log in ra đúng nhưng gây hiểu sai | `"2 card, dùng MỘT card (cuda:0)"` — câu đó nói về `device_map` và nó đúng, trong khi Trainer đang bọc DataParallel. Tôi đọc log thấy ổn | Log phải in **trạng thái đã kiểm chứng**, không in **ý định**. Giờ in thêm `"ghim n_gpu=1: không bọc DataParallel"` |
 | Preflight nạp model xong là tin cấu hình chạy được | `compute_loss` chỉ chạy ở bước 1, nên mọi lỗi trong đó không lộ ra lúc nạp model. Hai lượt liên tiếp mất 5 phút và 4 giờ 12 phút vì vậy | Preflight phải chạy **một bước optimizer thật**, không chỉ nạp model. `--limit 2 --grad-accum 1` là đủ và tốn vài phút |
+
+## 2026-11-04 — máy BSOD giữa lượt probe, và 4 GB mới là rào cản thật
+
+### Nguyên nhân shutdown: Windows tự ngủ giữa lượt train
+
+Truy từ Event Log, không phải suy đoán:
+
+```
+09:43:05  Kernel-Power 506   "The system is entering Modern Standby
+                              Reason: Idle Timeout"
+09:48:05  WER 1001            bugcheck 0x0000009F (0x3, ...)  DRIVER_POWER_STATE_FAILURE
+09:48:05  Kernel-Power 41     rebooted without cleanly shutting down
+```
+
+Chuỗi nhân quả: lượt train dài **không sinh ra input nào** từ người dùng → Windows kết luận máy
+rỗi → vào Modern Standby theo idle timeout → GPU đang bận nên driver không hoàn tất IRP chuyển
+trạng thái nguồn → watchdog nổ **đúng 5 phút sau** → BSOD.
+
+`"Sleep after"`: trên AC = **0 (không bao giờ)**, trên pin = **180 giây**. Cùng một lệnh chạy
+sẽ sống hay chết **tuỳ sợi dây điện**.
+
+Sửa (`b1d528b`): `_keep_awake()` đặt `ES_CONTINUOUS | ES_SYSTEM_REQUIRED` ngay đầu `main()` của
+cả `train_sft.py` và `infer.py`. Không phải lỗi code train — probe đã chạy xong **cả 2/2 bước**
+ở `max_seq_len 8192` trước khi máy ngủ.
+
+### 4 GB VRAM là rào cản, không phải tốc độ GPU
+
+Tôi đã kết luận sai một lần ("4 GB không phải rào cản, rào cản là tốc độ") rồi phải sửa khi có
+số. Preflight in ra:
+
+```
+VRAM đỉnh: 6.65 GiB (cấp phát 8.47 GiB) ở max_seq_len=2048, quant=nf4
+```
+
+**6.65 GiB trên card 4.00 GiB.** Nó không OOM chỉ vì Windows WDDM tràn sang shared memory và
+phân trang qua PCIe. Chậm là **hậu quả** của việc vượt VRAM.
+
+Đo chỗ ăn bộ nhớ của Qwen3-4B nf4:
+
+| | |
+|---|---|
+| Trọng số trên GPU | **2.49 GiB** / 4.00 |
+| trong đó `embed_tokens` fp16 **không lượng tử hoá** (tied với `lm_head`) | **0.72 GiB** |
+| Còn lại cho activation + grad + optimizer | ~1.5 GiB |
+| Thực cần ở seq 2048 | 6.65 GiB → **tràn 2.65 GiB** |
+
+Nên hạ `--max-seq-len` không cứu được. Và nó còn đắt theo cách khác:
+
+| ngưỡng | giữ lại hội thoại |
+|---|---|
+| 4096 | **18.8%** |
+| 6144 | 70.2% |
+| 7168 | **90.6%** |
+| 8192 | 100% (dài nhất 8181) |
+
+### Tốc độ đo được trên laptop
+
+| | |
+|---|---|
+| 4B nf4 @8192 | **922 s/bước** → 320 mẫu = **82 giờ** |
+| 4B nf4 @2048 | 231 s/bước |
+| Kaggle T4 fp16 @8192 | 298 s/bước |
+
+→ **Laptop không train được Qwen3-4B.** Vai trò của nó là preflight (đã bắt `DataParallel`, rồi
+bắt chính bản vá sai của tôi) và chạy inference có nhãn.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Kết luận "bộ nhớ không phải vấn đề" vì không thấy OOM | Windows WDDM tràn sang shared memory thay vì OOM, nên lượt chạy **vẫn xong** mà chậm 3× — tôi đọc đó là "GPU yếu" | Không OOM **không** có nghĩa là vừa bộ nhớ. Phải in `max_memory_allocated()` và so với dung lượng card; trên Windows thì OOM là ngoại lệ, không phải tín hiệu |
+| Giao lệnh chạy dài mà không khoá nguồn | Máy ngủ theo idle timeout giữa lượt train và BSOD; mất cả lượt probe | Lượt chạy dài phải tự giữ máy thức trong **source**. Để nó phụ thuộc vào việc người chạy nhớ cắm điện là một lỗi, không phải một lưu ý |
