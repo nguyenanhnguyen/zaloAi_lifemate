@@ -1134,3 +1134,50 @@ bắt chính bản vá sai của tôi) và chạy inference có nhãn.
 |---|---|---|
 | Kết luận "bộ nhớ không phải vấn đề" vì không thấy OOM | Windows WDDM tràn sang shared memory thay vì OOM, nên lượt chạy **vẫn xong** mà chậm 3× — tôi đọc đó là "GPU yếu" | Không OOM **không** có nghĩa là vừa bộ nhớ. Phải in `max_memory_allocated()` và so với dung lượng card; trên Windows thì OOM là ngoại lệ, không phải tín hiệu |
 | Giao lệnh chạy dài mà không khoá nguồn | Máy ngủ theo idle timeout giữa lượt train và BSOD; mất cả lượt probe | Lượt chạy dài phải tự giữ máy thức trong **source**. Để nó phụ thuộc vào việc người chạy nhớ cắm điện là một lỗi, không phải một lưu ý |
+
+## 2026-11-04 — Qwen3-1.7B không dùng được, và một bẫy licence
+
+Để laptop train được gì đó, cần model nhỏ hơn 4B. Thử Qwen3-1.7B (apache-2.0, 2025-04-27,
+hợp luật) và `train_sft.py` **từ chối chạy**:
+
+```
+RuntimeError: chat template is not prefix-stable at message 3 of train_0001
+```
+
+Guard này chặn đúng việc nó được viết ra để chặn. Nguyên nhân, đo bằng cách dựng prefix tăng dần
+và so:
+
+```
+lượt lịch sử : ...assistant\n<think>\n\n</think>\n\n<tool_call>...
+lượt cuối    : ...assistant\n<tool_call>...
+```
+
+Template Qwen3 **chèn `<think>\n\n</think>` vào lượt assistant cuối nhưng xoá nó ở các lượt lịch
+sử**, nên prefix không đơn điệu và cách khôi phục mask bằng diff prefix sẽ sai.
+**`enable_thinking=False` KHÔNG cứu được** — đã thử, lệch y nguyên, khối `<think>` rỗng vẫn được
+chèn. Không vòng qua guard: một mask sai âm thầm trên phép thử proxy vừa tốn giờ vừa cho kết
+luận sai.
+
+Đây cũng là lý do `Qwen3-4B-Instruct-2507` được chọn từ đầu chứ không phải bản Thinking — nhưng
+trước hôm nay đó là lập luận trong docstring, giờ nó là số đo.
+
+### Bẫy licence
+
+Kiểm **trước** khi tải trọng số, bằng cách chỉ tải tokenizer (vài trăm KB):
+
+| model | prefix-stable | licence | phát hành |
+|---|---|---|---|
+| **Qwen2.5-1.5B-Instruct** | ✓ | **apache-2.0** | 2024-09-17 |
+| Qwen2.5-3B-Instruct | ✓ | **`other`** (Qwen Research, phi thương mại) | 2024-09-17 |
+| Qwen3-1.7B | **✗** | apache-2.0 | 2025-04-27 |
+
+`Qwen2.5-3B-Instruct` **bị loại theo luật**: licence phi thương mại là disqualifying. Đây là
+bẫy dễ sa — 3B mạnh hơn, vẫn dưới giới hạn 5B, và nhìn qua thì giống hệt 1.5B cùng ngày phát
+hành.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| (tránh được) Định tải 3 GB trọng số rồi mới biết model không dùng được | Qwen3-1.7B tải xong 8 phút 50 mới lộ ra template không prefix-stable | Kiểm **tokenizer + licence trước**, vài trăm KB, trước khi tải trọng số. Cả hai điều kiện loại model đều nằm trong file nhỏ |
+| (tránh được) Chọn model theo kích thước và giới hạn 5B | Qwen2.5-3B-Instruct vừa mọi giới hạn kỹ thuật nhưng licence `other` là phi thương mại → loại | Licence là **điều kiện loại**, kiểm cùng lúc với kích thước, không kiểm sau |
