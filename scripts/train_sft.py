@@ -293,6 +293,13 @@ def main() -> None:
     parser.add_argument("--epochs", type=float, default=2.0)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad-accum", type=int, default=8)
+    parser.add_argument("--loss-chunk", type=int, default=LOSS_CHUNK,
+                        help="So token moi chunk khi tinh cross-entropy. Moi chunk giu mot "
+                             "ma tran logit fp32 co kich thuoc chunk x vocab; vocab day la "
+                             "151936 nen chunk 1024 ton 622 MB chi cho mot chunk. Do la dung "
+                             "cho OOM cua Qwen2.5-1.5B tren card 4 GB: xin 594 MiB khi da "
+                             "dung 3.05 GiB. Ha ve 256 thi con ~155 MB, doi lai nhieu luot "
+                             "lap hon.")
     parser.add_argument("--vram-fraction", type=float, default=0.90,
                         help="Chan cap phat o ti le nay cua VRAM that, de torch bao OOM thay vi tran sang UVM va LAM SAP MAY. Hai lan laptop tu restart deu tu duong UVM (nvlddmkm: GPU recovery action -> OS Reboot). Dat 0 de tat, vd tren Kaggle.")
     parser.add_argument("--lora-r", type=int, default=32)
@@ -486,7 +493,8 @@ def main() -> None:
             with torch.autocast("cuda", dtype=dtype, enabled=torch.cuda.is_available()):
                 hidden = causal.model(input_ids=inputs["input_ids"],
                                       attention_mask=inputs.get("attention_mask")).last_hidden_state
-                total = chunked_cross_entropy(causal.lm_head, hidden[:, :-1], labels)
+                total = chunked_cross_entropy(causal.lm_head, hidden[:, :-1], labels,
+                                              chunk=args.loss_chunk)
             # Mirrors ForCausalLMLoss: a sum divided by the token count of the whole
             # accumulation window, so short and long samples carry their true weight. When
             # Trainer withholds that count it divides by grad_accum itself, and dividing by
