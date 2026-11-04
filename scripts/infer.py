@@ -97,6 +97,31 @@ def _prefetch_transcripts(asr_path: str, *, items: list[dict], split_dir: Path, 
     return transcripts, seconds
 
 
+def _cap_vram(fraction: float) -> None:
+    """Chan khong cho cap phat vuot VRAM that, de torch bao OOM thay vi tran sang UVM.
+
+    Hai lan may tu restart deu tu day. Event Log nvlddmkm, 5 phut truoc moi lan crash:
+        Device UVMLiteProcess2
+        GPU recovery action changed from 0x0 (None) to 0x2 (OS Reboot)
+    UVM = Unified Virtual Memory, co che NVIDIA dung khi bo nho GPU bi VUOT MUC va phai phan
+    trang giua VRAM va RAM. Luot train 4B co VRAM dinh 6.65 GiB tren card 4.00 GiB, nen no chay
+    lien tuc tren duong UVM; driver 32.0.16.2101 gap loi khong hoi phuc duoc o day va tu dat
+    hanh dong khoi phuc la OS Reboot. Bugcheck 0x9F lan dau, 0x1E (0xC0000005) lan sau.
+
+    Tran VRAM tren Windows WDDM KHONG bao OOM -- driver am tham lay RAM he thong lam bo nho
+    phu. Nghia la cau hinh qua lon khong bao loi, no chay cham 3x roi lam sap may. Cap nay bien
+    no thanh mot torch.OutOfMemoryError sach se: biet ngay, va khong mat phien lam viec.
+
+    Dat 0 de tat (vd tren Kaggle, noi VRAM du va khong co van de nay).
+    """
+    if fraction <= 0 or not torch.cuda.is_available():
+        return
+    total = torch.cuda.get_device_properties(0).total_memory
+    torch.cuda.set_per_process_memory_fraction(fraction, 0)
+    print(f"chan VRAM o {fraction:.0%} = {total * fraction / 1024**3:.2f} GiB "
+          f"tren card {total / 1024**3:.2f} GiB (tran VRAM lam sap may, khong phai cham)")
+
+
 def _keep_awake() -> None:
     """Giu may khong vao Modern Standby suot luot chay (Windows).
 
@@ -138,6 +163,8 @@ def main() -> None:
     parser.add_argument("--resume", action="store_true", help="Continue an output containing a valid completed prefix")
     parser.add_argument("--max-steps", type=int, default=8, help="Bounded LLM turns per sample (1-16)")
     parser.add_argument("--max-seconds", type=float, default=30, help="Sample budget; 30 matches the competition's A30 rule")
+    parser.add_argument("--vram-fraction", type=float, default=0.90,
+                        help="Chan cap phat o ti le nay cua VRAM that, de torch bao OOM thay vi tran sang UVM va LAM SAP MAY. Hai lan laptop tu restart deu tu duong UVM (nvlddmkm: GPU recovery action -> OS Reboot). Dat 0 de tat, vd tren Kaggle.")
     parser.add_argument("--xref-gate", action="store_true",
                         help="Từ chối lệnh có tham số x-ref mang ID chưa từng xuất hiện trong "
                              "kết quả công cụ hay lịch sử (env.validate() không kiểm tra điều "
@@ -198,6 +225,7 @@ def main() -> None:
                              "so an interrupted LLM phase does not redo ASR. "
                              "Default: <output>.transcripts.jsonl")
     args = parser.parse_args()
+    _cap_vram(args.vram_fraction)
     if not 1 <= args.max_steps <= 16 or not 0 < args.max_seconds <= 86400:
         parser.error("Use 1-16 turns and 0 < --max-seconds <= 86400")
     if not 1024 <= args.context_size <= 16384 or not 64 <= args.max_new_tokens < args.context_size:
