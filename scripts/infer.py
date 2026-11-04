@@ -97,10 +97,36 @@ def _prefetch_transcripts(asr_path: str, *, items: list[dict], split_dir: Path, 
     return transcripts, seconds
 
 
+def _keep_awake() -> None:
+    """Giu may khong vao Modern Standby suot luot chay (Windows).
+
+    Luot probe 8192 lam may BSOD 0x9F DRIVER_POWER_STATE_FAILURE: mot luot train dai khong sinh
+    ra input nao tu nguoi dung, Windows ket luan may roi va vao Modern Standby luc 09:43:05
+    ("Reason: Idle Timeout"; "Sleep after" tren pin = 180 giay), GPU dang ban nen driver khong
+    hoan tat chuyen trang thai nguon, watchdog no dung 5 phut sau luc 09:48:05.
+
+    ES_CONTINUOUS | ES_SYSTEM_REQUIRED noi voi Windows la tien trinh nay can may thuc. Khong
+    chan man hinh tat, chi chan ngu. Lam o day thay vi bat nguoi chay nho cam dien, vi tren AC
+    thi "Sleep after" = 0 con tren pin thi 180 giay -- cung mot lenh se song hay chet tuy soi
+    day dien.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        if ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001):
+            print("giu may thuc suot luot chay (ES_SYSTEM_REQUIRED)")
+        else:
+            print("CANH BAO: khong dat duoc ES_SYSTEM_REQUIRED; may co the ngu giua luot chay")
+    except (OSError, AttributeError) as exc:
+        print(f"CANH BAO: khong giu duoc may thuc ({exc}); cam dien truoc khi chay lau")
+
+
 def main() -> None:
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
+    _keep_awake()
     parser = argparse.ArgumentParser(description="ZAC LifeMate: PhoWhisper-large + Qwen3-4B-Instruct-2507, GPU")
     parser.add_argument("--prepare-only", action="store_true", help="Download pinned models without running inference")
     parser.add_argument("--data-root", type=Path, default=PROJECT_ROOT / "data/train+public_test/train+public_test")
