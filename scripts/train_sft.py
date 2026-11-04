@@ -224,6 +224,31 @@ class Collator:
         }
 
 
+def _cap_vram(fraction: float) -> None:
+    """Chan khong cho cap phat vuot VRAM that, de torch bao OOM thay vi tran sang UVM.
+
+    Hai lan may tu restart deu tu day. Event Log nvlddmkm, 5 phut truoc moi lan crash:
+        Device UVMLiteProcess2
+        GPU recovery action changed from 0x0 (None) to 0x2 (OS Reboot)
+    UVM = Unified Virtual Memory, co che NVIDIA dung khi bo nho GPU bi VUOT MUC va phai phan
+    trang giua VRAM va RAM. Luot train 4B co VRAM dinh 6.65 GiB tren card 4.00 GiB, nen no chay
+    lien tuc tren duong UVM; driver 32.0.16.2101 gap loi khong hoi phuc duoc o day va tu dat
+    hanh dong khoi phuc la OS Reboot. Bugcheck 0x9F lan dau, 0x1E (0xC0000005) lan sau.
+
+    Tran VRAM tren Windows WDDM KHONG bao OOM -- driver am tham lay RAM he thong lam bo nho
+    phu. Nghia la cau hinh qua lon khong bao loi, no chay cham 3x roi lam sap may. Cap nay bien
+    no thanh mot torch.OutOfMemoryError sach se: biet ngay, va khong mat phien lam viec.
+
+    Dat 0 de tat (vd tren Kaggle, noi VRAM du va khong co van de nay).
+    """
+    if fraction <= 0 or not torch.cuda.is_available():
+        return
+    total = torch.cuda.get_device_properties(0).total_memory
+    torch.cuda.set_per_process_memory_fraction(fraction, 0)
+    print(f"chan VRAM o {fraction:.0%} = {total * fraction / 1024**3:.2f} GiB "
+          f"tren card {total / 1024**3:.2f} GiB (tran VRAM lam sap may, khong phai cham)")
+
+
 def _keep_awake() -> None:
     """Giu may khong vao Modern Standby suot luot chay (Windows).
 
@@ -267,6 +292,8 @@ def main() -> None:
     parser.add_argument("--epochs", type=float, default=2.0)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--grad-accum", type=int, default=8)
+    parser.add_argument("--vram-fraction", type=float, default=0.90,
+                        help="Chan cap phat o ti le nay cua VRAM that, de torch bao OOM thay vi tran sang UVM va LAM SAP MAY. Hai lan laptop tu restart deu tu duong UVM (nvlddmkm: GPU recovery action -> OS Reboot). Dat 0 de tat, vd tren Kaggle.")
     parser.add_argument("--lora-r", type=int, default=32)
     parser.add_argument("--lora-alpha", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
@@ -301,6 +328,7 @@ def main() -> None:
     parser.add_argument("--tokenize-only", action="store_true",
                         help="write the --cache files and stop; lets a CPU box prepare for Kaggle")
     args = parser.parse_args()
+    _cap_vram(args.vram_fraction)
 
     from transformers import AutoTokenizer
     if args.model:
