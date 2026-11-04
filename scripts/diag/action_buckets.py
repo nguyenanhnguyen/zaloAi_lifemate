@@ -19,6 +19,14 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+# Tên bucket là tiếng Việt và console Windows mặc định cp1252 không mã hoá được: chạy thẳng
+# script này trên laptop thì nó chết ở dòng in đầu tiên, không phải ở phép đo.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
