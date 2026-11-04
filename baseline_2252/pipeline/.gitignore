@@ -1,6 +1,0 @@
-data/
-env/
-models/
-checkpoints/
-__pycache__/
-.jsonl
