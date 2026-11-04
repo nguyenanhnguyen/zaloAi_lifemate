@@ -43,6 +43,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # CUDA, which is why it sits at import time rather than next to the other GPU settings.
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
+# Console Windows mặc định là cp1252 và KHÔNG mã hoá được tiếng Việt: lượt probe đầu trên laptop
+# chết ở `print("train: lấy ...")` -- chết vì dòng log của chính nó, sau khi đã tokenize xong.
+# Mọi log ở đây là tiếng Việt, nên ép UTF-8 ngay thay vì bắt người chạy phải đặt PYTHONIOENCODING.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
 IGNORE = -100
 QUERY_BLOCK = 1024
 LOSS_CHUNK = 1024
