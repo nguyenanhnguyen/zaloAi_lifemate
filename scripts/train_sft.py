@@ -414,22 +414,19 @@ def main() -> None:
         """
 
         def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-            # Bóc mọi lớp vỏ trước khi tìm lm_head. DataParallel và DistributedDataParallel bọc
-            # model vào `.module`, và PeftModel thì mở bằng get_base_model() -- thứ tự vỏ không
-            # cố định, nên cứ bóc đến khi thấy lm_head. Lượt lora_V3 chết ngay bước 0 vì chỉ thử
-            # get_base_model() rồi gặp DataParallel.
+            # Bóc vỏ theo THỨ TỰ CỐ ĐỊNH, không dò bằng hasattr: PeftModel chuyển tiếp mọi truy
+            # cập thuộc tính xuống model bên trong, nên `hasattr(peft, "lm_head")` là True và
+            # dừng ở đó sẽ lấy chính lớp vỏ. Khi ấy `causal.model` không phải thân model mà là
+            # cả một ForCausalLM, và nó trả CausalLMOutputWithPast thay vì last_hidden_state.
+            # Vỏ ngoài cùng là DataParallel/DDP (`.module`), trong đó mới là PeftModel.
             causal = model
-            for _ in range(4):
-                if hasattr(causal, "lm_head"):
-                    break
-                if hasattr(causal, "get_base_model"):
-                    causal = causal.get_base_model()
-                elif hasattr(causal, "module"):
-                    causal = causal.module
-                else:
-                    break
-            if not hasattr(causal, "lm_head"):
-                raise RuntimeError(f"không tìm thấy lm_head trên {type(model).__name__}")
+            while hasattr(causal, "module") and not hasattr(causal, "get_base_model"):
+                causal = causal.module
+            if hasattr(causal, "get_base_model"):
+                causal = causal.get_base_model()
+            if not hasattr(causal, "lm_head") or not hasattr(causal, "model"):
+                raise RuntimeError(f"bóc vỏ {type(model).__name__} ra {type(causal).__name__}, "
+                                   "không có lm_head + model")
             labels = inputs["labels"][:, 1:]
             with torch.autocast("cuda", dtype=dtype, enabled=torch.cuda.is_available()):
                 hidden = causal.model(input_ids=inputs["input_ids"],
