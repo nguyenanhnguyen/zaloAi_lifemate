@@ -503,6 +503,12 @@ def main() -> None:
         print(f"tiếp tục từ {resume}" if resume else "không thấy checkpoint, bắt đầu từ đầu")
     with attention:
         trainer.train(resume_from_checkpoint=resume)
+    # Con số để định cỡ lượt sau. Không có nó thì mỗi lần đổi --max-seq-len là một lần đoán,
+    # và đoán bộ nhớ trên card 4 GB thì chỉ biết sai sau khi đã mất một giờ.
+    if torch.cuda.is_available():
+        print(f"VRAM đỉnh: {torch.cuda.max_memory_allocated() / 1024**3:.2f} GiB "
+              f"(cấp phát {torch.cuda.max_memory_reserved() / 1024**3:.2f} GiB) "
+              f"ở max_seq_len={args.max_seq_len}, quant={args.quant}")
         model.save_pretrained(args.out)
         tokenizer.save_pretrained(args.out)
         print(f"adapter written to {args.out}")

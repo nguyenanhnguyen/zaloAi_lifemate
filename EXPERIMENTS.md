@@ -1022,3 +1022,43 @@ Giá phải trả: mỗi lần chặn tốn một lượt LLM. Trong 10 mẫu b�
 |---|---|---|
 | Sửa một lỗi có thật mà chưa hỏi nó có đủ để ăn điểm | Màng chắn `x-ref` sửa đúng lớp lỗi đã đo được (11/31 lệnh sai ID) và quả thật buộc model đi đọc ID thật, nhưng điểm đứng nguyên 3.90 vì `state_hash` cần **mọi** lệnh ghi đúng, không chỉ ID đúng | Với thang điểm all-or-nothing như `state_hash`, một lỗi "có thật và đo được" vẫn có thể không phải **lỗi chặn**. Hỏi trước: nếu sửa xong lỗi này, mẫu có đạt điểm không? |
 | Dựng cửa chặn trên đường đi nóng mà không tính lượt | 2/10 mẫu bị chặn chạm `time_limit`, 2 chạm `step_limit` | Mỗi lần từ chối là một lượt LLM. Ở ngân sách 8 lượt / 30 giây, cửa chặn phải tính vào ngân sách ngay từ khi thiết kế |
+
+## 2026-11-04 — lora_V3 chết ở bước 0: `--device single` chỉ làm được nửa việc
+
+```
+0%| | 0/40 [00:00<?, ?it/s]
+RuntimeError: không tìm thấy lm_head trên DataParallel
+```
+
+Chết sau 5 phút, ngay bước đầu. Và đây là **bản vá của chính tôi ở `4f83b3b` gây ra**.
+
+`--device single` đặt `device_map={"": 0}` để trọng số nằm trên một card, nhằm bỏ hẳn hook
+chuyển tensor của accelerate — chỗ nổ `illegal memory access` ở lượt trước. Phần đó đúng.
+
+Phần sai: **Trainer không nhìn `device_map`.** Nó nhìn `torch.cuda.device_count()`, thấy 2 card,
+đặt `n_gpu=2`, rồi bọc model vào `nn.DataParallel` trong `_wrap_model`. `compute_loss` chỉ thử
+`get_base_model()` một lần, gặp `DataParallel` (không có hàm đó, cũng không có `lm_head`) → raise.
+
+Hai hậu quả, cả hai đều phá lượt chạy:
+
+| | |
+|---|---|
+| Lớp vỏ `DataParallel` | `compute_loss` không tìm ra `lm_head` → chết ngay |
+| `DataParallel` rải batch sang card thứ hai | **đúng kiểu chuyển tensor qua card mà `--device single` được thêm vào để tránh** |
+
+Tức là ngay cả khi vá chỗ `lm_head`, lượt chạy vẫn sẽ gặp lại lỗi cũ ở một bước nào đó.
+
+Sửa (`d5699a6`): ghim `trainer.args._n_gpu = 1` khi `device_map != "balanced"` và có hơn một
+card; và cho `compute_loss` bóc `.module` / `get_base_model()` lần lượt đến khi thấy `lm_head`,
+vì thứ tự vỏ (`DataParallel`, `DDP`, `PeftModel`) không cố định.
+
+Thêm in **VRAM đỉnh** cuối lượt chạy. Không có nó thì mỗi lần đổi `--max-seq-len` là một lần
+đoán, và đoán bộ nhớ thì chỉ biết sai sau khi đã mất một giờ.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Vá bằng cách đặt `device_map`, rồi tin rằng Trainer biết | `device_map={"":0}` nói với accelerate, **không** nói với Trainer. Trainer tự suy `n_gpu` từ `device_count()` và bọc `DataParallel`, dựng lại đúng cái lỗi vừa vá | Khi "tắt" một thứ, phải tắt ở **mọi** tầng tự suy ra nó. Một tầng đọc `device_map`, tầng khác đọc `device_count()` |
+| Log in ra đúng nhưng gây hiểu sai | `"2 card, dùng MỘT card (cuda:0)"` — câu đó nói về `device_map` và nó đúng, trong khi Trainer đang bọc DataParallel. Tôi đọc log thấy ổn | Log phải in **trạng thái đã kiểm chứng**, không in **ý định**. Giờ in thêm `"ghim n_gpu=1: không bọc DataParallel"` |
+| Preflight nạp model xong là tin cấu hình chạy được | `compute_loss` chỉ chạy ở bước 1, nên mọi lỗi trong đó không lộ ra lúc nạp model. Hai lượt liên tiếp mất 5 phút và 4 giờ 12 phút vì vậy | Preflight phải chạy **một bước optimizer thật**, không chỉ nạp model. `--limit 2 --grad-accum 1` là đủ và tốn vài phút |
