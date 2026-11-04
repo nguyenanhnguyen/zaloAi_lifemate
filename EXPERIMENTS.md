@@ -1181,3 +1181,69 @@ hành.
 |---|---|---|
 | (tránh được) Định tải 3 GB trọng số rồi mới biết model không dùng được | Qwen3-1.7B tải xong 8 phút 50 mới lộ ra template không prefix-stable | Kiểm **tokenizer + licence trước**, vài trăm KB, trước khi tải trọng số. Cả hai điều kiện loại model đều nằm trong file nhỏ |
 | (tránh được) Chọn model theo kích thước và giới hạn 5B | Qwen2.5-3B-Instruct vừa mọi giới hạn kỹ thuật nhưng licence `other` là phi thương mại → loại | Licence là **điều kiện loại**, kiểm cùng lúc với kích thước, không kiểm sau |
+
+## 2026-11-04 — chốt: laptop 4 GB không train được trên dữ liệu này, bất kể model nào
+
+Hai lần máy tự restart hôm nay **không phải** vì sleep, mà vì driver NVIDIA sập trong UVM khi
+VRAM bị vượt mức. Cùng một thông điệp, 5 phút trước cả hai lần crash:
+
+```
+nvlddmkm Id=14   Device UVMLiteProcess2
+                 "GPU recovery action changed from 0x0 (None) to 0x2 (OS Reboot)"
+09:48:05  bugcheck 0x9F DRIVER_POWER_STATE_FAILURE
+10:57:18  bugcheck 0x1E (0xC0000005) KMODE_EXCEPTION_NOT_HANDLED
+```
+
+Không có lỗi WHEA nào trong 24 giờ → **không phải RAM/CPU hỏng**. Driver `32.0.16.2101`.
+
+Điều này sửa lại kết luận trước của tôi rằng tràn VRAM chỉ "chậm 3×". Tràn VRAM trên Windows
+WDDM **không báo OOM**: driver âm thầm lấy RAM hệ thống làm bộ nhớ phụ, rồi UVM chết và **tự đặt
+hành động khôi phục là OS Reboot**. Một cấu hình quá lớn không báo lỗi gì — nó chạy chậm rồi
+giết cả phiên làm việc.
+
+### Ba chốt chặn đã vào source
+
+| | |
+|---|---|
+| `_keep_awake()` | `ES_SYSTEM_REQUIRED`, chặn Modern Standby giữa lượt chạy (`b1d528b`) |
+| `--vram-fraction 0.90` | `set_per_process_memory_fraction` → `torch.OutOfMemoryError` sạch thay vì tràn UVM (`4728152`) |
+| `--loss-chunk` | hạ đỉnh bộ nhớ ở chỗ đỉnh thật nằm (`0062522`) |
+
+Chốt VRAM trả lãi ngay lần đầu: Qwen2.5-1.5B báo OOM **sau 4 giây** và chỉ đúng dòng code, thay
+vì chạy 30 phút rồi làm sập máy.
+
+### Đỉnh bộ nhớ nằm ở logit, không ở attention
+
+OOM đầu tiên xin đúng **594 MiB** tại `F.cross_entropy`. Đó là một chunk logit fp32:
+`LOSS_CHUNK 1024 × vocab 151936 × 4 byte = 622 MB`. Vocab Qwen lớn nên **ma trận logit**, không
+phải attention hay trọng số, mới là đỉnh. Tôi đã không nhìn ra chỗ này khi ước lượng bằng tay.
+
+Hạ `--loss-chunk 256` thì OOM dịch sang MLP, xin **148 MiB**. Tính ra khớp:
+
+| @seq 8192 | Qwen2.5-1.5B | Qwen3-4B |
+|---|---|---|
+| `embed_tokens` fp16 (không lượng tử hoá) | 0.43 GiB | 0.72 GiB |
+| Đầu vào mỗi lớp, giữ bởi gradient checkpointing | 0.66 GiB | **1.41 GiB** |
+| MLP trung gian **một lớp** | **140 MiB** | 152 MiB |
+
+`140 MiB` tính được vs `148 MiB` driver xin → mô hình bộ nhớ đã khớp.
+
+### Vì sao dừng hướng train trên laptop
+
+1.5B dùng 3.19 GiB trước khi xin thêm 148 MiB, trên hạn 3.60 GiB. Để vừa thì phải:
+
+- hạ `--max-seq-len` → **4096 chỉ giữ 18.8% hội thoại**, 6144 giữ 70.2%; hoặc
+- mổ code để chunk cả MLP — đúng loại việc đầu cơ đã đốt nhiều giờ của phiên này; hoặc
+- xuống Qwen2.5-0.5B → **phép thử mất hết ý nghĩa** trước khi nó vừa.
+
+Và dù vừa, kết quả 1.5B không chuyển sang 4B mà ta sẽ nộp. **Laptop không train được trên dữ
+liệu này.** Vai trò của nó là **preflight** và **inference có nhãn** — và riêng preflight hôm nay
+đã bắt 4 lỗi trước khi chúng ăn quota Kaggle.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Đọc "không OOM" là "vừa bộ nhớ", hai lần | Lần đầu tôi kết luận "4 GB không phải rào cản, rào cản là tốc độ". Thực ra tràn VRAM làm **sập máy**, và nó đã sập hai lần | Trên Windows WDDM, OOM là **ngoại lệ** chứ không phải tín hiệu. Phải tự chặn bằng `set_per_process_memory_fraction` để biến im lặng thành lỗi |
+| Ước lượng bộ nhớ bằng tay mà bỏ sót số hạng lớn nhất | Tôi tính trọng số và activation, bỏ qua ma trận logit `chunk × 151936 × 4` = 622 MB — chính là chỗ OOM | Với vocab lớn, logit là số hạng đầu tiên phải tính, không phải cuối cùng |
+| Theo một hướng vì nó khả thi về kỹ thuật, không vì nó trả lời được câu hỏi | Để 1.5B vừa 4 GB thì phải xuống 0.5B hoặc cắt 80% dữ liệu — lúc đó phép thử không còn nói gì về 4B | Hỏi "nếu làm xong thì nó trả lời được câu gì" **trước** khi hạ cấu hình để nó chạy được |
