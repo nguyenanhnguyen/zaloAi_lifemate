@@ -1247,3 +1247,66 @@ liệu này.** Vai trò của nó là **preflight** và **inference có nhãn** 
 | Đọc "không OOM" là "vừa bộ nhớ", hai lần | Lần đầu tôi kết luận "4 GB không phải rào cản, rào cản là tốc độ". Thực ra tràn VRAM làm **sập máy**, và nó đã sập hai lần | Trên Windows WDDM, OOM là **ngoại lệ** chứ không phải tín hiệu. Phải tự chặn bằng `set_per_process_memory_fraction` để biến im lặng thành lỗi |
 | Ước lượng bộ nhớ bằng tay mà bỏ sót số hạng lớn nhất | Tôi tính trọng số và activation, bỏ qua ma trận logit `chunk × 151936 × 4` = 622 MB — chính là chỗ OOM | Với vocab lớn, logit là số hạng đầu tiên phải tính, không phải cuối cùng |
 | Theo một hướng vì nó khả thi về kỹ thuật, không vì nó trả lời được câu hỏi | Để 1.5B vừa 4 GB thì phải xuống 0.5B hoặc cắt 80% dữ liệu — lúc đó phép thử không còn nói gì về 4B | Hỏi "nếu làm xong thì nó trả lời được câu gì" **trước** khi hạ cấu hình để nó chạy được |
+
+## 2026-11-04 (bổ chính) — Krita đang mở trong CẢ HAI lần crash; cơ chế là RAM hệ thống
+
+Người dùng hỏi đúng chỗ: trước đây nhiều lượt dùng tới shared RAM và chạy rất lâu vẫn xong, nên
+"tràn VRAM làm sập máy" không thể là lời giải đủ. Tôi đã viết câu đó quá tuyệt đối. Kiểm lại
+bằng `krita.log`:
+
+| Phiên Krita | Kết thúc | |
+|---|---|---|
+| 04 Nov 09:05:15 | **không có `CLOSING SESSION`** | bị crash 09:48:05 giết |
+| 04 Nov 10:20:05 | **không có `CLOSING SESSION`** | bị crash 10:57:18 giết |
+| 04 Nov 11:43:56 | `CLOSING SESSION` 11:48:21 | đóng sạch (sau reboot) |
+| mọi phiên trước đó (07/09/21/28/30 Oct, 04 Nov 01:02, 03:09) | `CLOSING SESSION` | đóng sạch |
+
+**Cả hai lần crash đều xảy ra khi có một phiên Krita đang mở, và cả hai phiên đó đều chết cùng
+máy.** Mọi phiên khác đóng bình thường. Tài liệu đang mở: `sketch22.kra`, **4096 × 4096 pixel,
+13 layer** (file 43 MB nén, autosave 36 MB).
+
+### Nhưng cơ chế KHÔNG phải "Krita giành VRAM"
+
+`krita-sysinfo.log`:
+
+```
+Vendor:   "Google Inc. (Intel)"
+Renderer: "ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 ...)"
+```
+
+Krita vẽ canvas qua ANGLE trên **Intel UHD**, không phải trên RTX 2050. Nó **không** chiếm VRAM
+của card NVIDIA.
+
+Chỗ cạnh tranh là **RAM hệ thống**. Khi lượt train vượt 4 GiB VRAM, driver lấy RAM hệ thống làm
+shared GPU memory — và đó đúng là chỗ Krita đang giữ một tài liệu 4096² 13 layer trong tile
+pool. Máy có 31.7 GB RAM nhưng hiện chỉ còn 12.5 GB khả dụng ngay cả khi Krita đã đóng.
+
+### Phân biệt chứng minh được và suy ra
+
+**Chứng minh được:** cả hai crash đều có phiên Krita đang mở và bị giết cùng máy; mọi phiên khác
+đóng sạch; Krita render trên Intel chứ không trên RTX; `nvlddmkm` UVM "OS Reboot" đi trước cả
+hai crash; lượt train đỉnh 6.65 GiB trên card 4.00 GiB nên có tràn sang shared memory.
+
+**Chỉ suy ra:** rằng chính nhu cầu RAM của phần tràn, cộng với bộ nhớ tài liệu Krita, làm driver
+UVM không xin được host page và vỡ. Tôi **không** đo được RSS của Krita lúc đó, nên đây là giả
+thuyết phù hợp với mọi dữ liệu, không phải kết luận.
+
+### Phát biểu lại cho đúng
+
+Tràn VRAM là **điều kiện cần, không phải điều kiện đủ**. Nó sập khi cùng lúc RAM hệ thống bị
+cạnh tranh. Đó là lý do các lượt dùng shared RAM trước đây vẫn xong — và cũng là lý do lượt
+inference `local_v6` (02:55–03:44, đỉnh ~2.5 GiB, **dưới** 4 GiB nên không tràn) chạy xong dù
+Krita mở tới 02:59.
+
+Tôi cũng đã nói `local_v5`/`local_v6` "đã ở trong vùng nguy hiểm". Nói vậy là quá: chúng không
+tràn VRAM, nên chúng không ở trên đường UVM.
+
+`--vram-fraction` vẫn là cách sửa đúng, và giờ đúng vì lý do mạnh hơn: nó **xoá hẳn phần tràn**,
+nên chuyện Krita hay bất cứ app nào đang mở không còn ảnh hưởng gì nữa.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Kết luận một nguyên nhân mà không giải thích được các lần KHÔNG xảy ra | Tôi viết "tràn VRAM làm sập máy" dù người dùng đã nhiều lần tràn shared RAM mà vẫn xong. Câu đó không giải thích được các lần sống sót | Một nguyên nhân chỉ đứng được khi nó giải thích cả **các lần không xảy ra**. Nếu không, nó là điều kiện cần, và còn thiếu điều kiện đủ |
+| Bỏ qua phần còn lại của máy khi truy lỗi | Thủ phạm thứ hai là một app đồ hoạ mở sẵn với tài liệu 4096² 13 layer, tìm ra bằng `krita.log` trong 2 phút | Khi một lượt chạy sập máy, đọc log của **các app khác** đang mở, không chỉ log của mình |
