@@ -405,9 +405,22 @@ def main() -> None:
         """
 
         def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-            causal = model.get_base_model() if hasattr(model, "get_base_model") else model
+            # Bóc mọi lớp vỏ trước khi tìm lm_head. DataParallel và DistributedDataParallel bọc
+            # model vào `.module`, và PeftModel thì mở bằng get_base_model() -- thứ tự vỏ không
+            # cố định, nên cứ bóc đến khi thấy lm_head. Lượt lora_V3 chết ngay bước 0 vì chỉ thử
+            # get_base_model() rồi gặp DataParallel.
+            causal = model
+            for _ in range(4):
+                if hasattr(causal, "lm_head"):
+                    break
+                if hasattr(causal, "get_base_model"):
+                    causal = causal.get_base_model()
+                elif hasattr(causal, "module"):
+                    causal = causal.module
+                else:
+                    break
             if not hasattr(causal, "lm_head"):
-                raise RuntimeError(f"không tìm thấy lm_head trên {type(causal).__name__}")
+                raise RuntimeError(f"không tìm thấy lm_head trên {type(model).__name__}")
             labels = inputs["labels"][:, 1:]
             with torch.autocast("cuda", dtype=dtype, enabled=torch.cuda.is_available()):
                 hidden = causal.model(input_ids=inputs["input_ids"],
@@ -468,6 +481,15 @@ def main() -> None:
     # which our compute_loss no longer calls -- so pin it, or the loss gets normalised twice
     # and the effective learning rate is silently off by a factor of grad_accum.
     trainer.model_accepts_loss_kwargs = True
+    # --device single đặt trọng số lên cuda:0, nhưng Trainer KHÔNG nhìn device_map: nó nhìn
+    # torch.cuda.device_count(), thấy 2 card nên đặt n_gpu=2 và bọc model vào nn.DataParallel.
+    # Hai hậu quả, cả hai đều phá lượt chạy: lớp vỏ làm compute_loss không tìm ra lm_head, và
+    # DataParallel sẽ rải batch sang card thứ hai -- đúng kiểu chuyển tensor qua card mà
+    # --device single được thêm vào để tránh. Ghim n_gpu về 1 là cách nói với Trainer đúng thứ
+    # device_map đã làm.
+    if device_map != "balanced" and count > 1:
+        trainer.args._n_gpu = 1
+        print("ghim n_gpu=1: không bọc DataParallel")
     import contextlib
     from torch.nn.attention import SDPBackend, sdpa_kernel
     attention = sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]) if old_gpu else contextlib.nullcontext()
