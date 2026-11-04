@@ -114,6 +114,7 @@ def _cap_vram(fraction: float) -> None:
 
     Dat 0 de tat (vd tren Kaggle, noi VRAM du va khong co van de nay).
     """
+    import torch   # torch duoc import muon hon trong file; lay tai cho cho chac
     if fraction <= 0 or not torch.cuda.is_available():
         return
     total = torch.cuda.get_device_properties(0).total_memory
