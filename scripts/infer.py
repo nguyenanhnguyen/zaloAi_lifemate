@@ -118,6 +118,13 @@ def _cap_vram(fraction: float) -> None:
     if fraction <= 0 or not torch.cuda.is_available():
         return
     total = torch.cuda.get_device_properties(0).total_memory
+    # Chot nay sinh ra cho laptop 4 GB, noi tran VRAM lam sap may. Tren card lon (T4 14.56 GiB,
+    # A30 24 GiB) khong co van de UVM do, va cat 10% VRAM o day la cat dung phan dang can. Tu bo
+    # qua thay vi bat nguoi chay phai nho them --vram-fraction 0 trong mot cell notebook tren
+    # Kaggle: mot co phai nho moi lan la mot co se co lan bi quen.
+    if total >= 8 * 1024**3:
+        print(f"card {total / 1024**3:.2f} GiB (>= 8 GiB): khong chan VRAM, khong can thiet")
+        return
     torch.cuda.set_per_process_memory_fraction(fraction, 0)
     print(f"chan VRAM o {fraction:.0%} = {total * fraction / 1024**3:.2f} GiB "
           f"tren card {total / 1024**3:.2f} GiB (tran VRAM lam sap may, khong phai cham)")
