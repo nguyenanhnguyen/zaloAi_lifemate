@@ -397,6 +397,7 @@ def main() -> None:
 
     import torch
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+    import transformers
     from transformers import AutoModelForCausalLM, BitsAndBytesConfig, Trainer, TrainingArguments
 
     # T4 (sm75) has no bfloat16 and no flash-attention, so fp16 compute and sdpa attention.
@@ -512,9 +513,7 @@ def main() -> None:
                 loss = total / num_items_in_batch
             return (loss, {"loss": loss}) if return_outputs else loss
 
-    trainer = ChunkedLossTrainer(
-        model=model,
-        args=TrainingArguments(
+    ta_kwargs = dict(
             output_dir=args.out,
             num_train_epochs=args.epochs,
             per_device_train_batch_size=1,          # one 8k conversation already fills the card
@@ -547,7 +546,46 @@ def main() -> None:
             # per_device_train_batch_size=1 thì nó vốn không làm gì: không có batch để gom
             # theo độ dài. Bỏ hẳn thay vì đặt điều kiện theo phiên bản.
             dataloader_num_workers=0,
-        ),
+    )
+
+    # TrainingArguments doi signature giua cac ban minor cua transformers, va moi lan doi la
+    # mot luot Kaggle chet o dong khoi tao -- sau khi da tai 8 GB trong so. Da gap hai lan:
+    # `group_by_length` bo o 5.x, `warmup_ratio` bo o 5.16.1 (Kaggle nang 5.13.0 -> 5.16.1).
+    # Nen loc theo signature thuc te thay vi dat dieu kien theo tung phien ban.
+    import inspect
+    accepted = set(inspect.signature(TrainingArguments.__init__).parameters)
+    if "kwargs" not in accepted:
+        # warmup_ratio bo di thi phai QUY DOI, khong phai lang im bo luon: bo warmup han
+        # la doi lich hoc, khong phai doi mot tham so trang tri.
+        if "warmup_ratio" not in accepted and "warmup_ratio" in ta_kwargs:
+            ratio = ta_kwargs.pop("warmup_ratio")
+            if "warmup_steps" in accepted:
+                total = max(1, (len(train_set) // args.grad_accum) * max(1, args.epochs))
+                ta_kwargs["warmup_steps"] = max(1, round(total * ratio))
+                print(f"warmup_ratio={ratio} khong con -> warmup_steps="
+                      f"{ta_kwargs['warmup_steps']} tren {total} buoc")
+            else:
+                print(f"CANH BAO: khong dat duoc warmup (bo warmup_ratio={ratio})")
+        dropped = [k for k in ta_kwargs if k not in accepted]
+        for k in dropped:
+            ta_kwargs.pop(k)
+        if dropped:
+            print(f"transformers {transformers.__version__} khong nhan: {', '.join(dropped)} -- da bo")
+
+    # optim 8-bit can bitsandbytes, va Kaggle co phien KHONG cai san no. Thieu thi roi ve
+    # adamw_torch: trang thai optimizer fp32 cho 66M tham so LoRA ton them ~400 MB, van vua
+    # T4, con doi lai la luot chay khong chet o dong nay.
+    if "8bit" in str(ta_kwargs.get("optim", "")):
+        try:
+            import bitsandbytes  # noqa: F401
+        except ImportError:
+            print(f"bitsandbytes THIEU -> optim {ta_kwargs['optim']} doi sang adamw_torch "
+                  "(+~400 MB trang thai optimizer)")
+            ta_kwargs["optim"] = "adamw_torch"
+
+    trainer = ChunkedLossTrainer(
+        model=model,
+        args=TrainingArguments(**ta_kwargs),
         train_dataset=train_set,
         eval_dataset=eval_set,
         data_collator=Collator(tokenizer.pad_token_id or tokenizer.eos_token_id),
