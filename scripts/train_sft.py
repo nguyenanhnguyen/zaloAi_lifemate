@@ -54,7 +54,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 IGNORE = -100
 QUERY_BLOCK = 1024
-BLOCK_CKPT = False
+BLOCK_CKPT = True
 LOSS_CHUNK = 1024
 
 
@@ -361,16 +361,24 @@ def main() -> None:
                              "block 1024 = 1024 MiB (do duoc tren T4, khong phai uoc luong) -- "
                              "ha xuong 256 thi con 256 MiB. Giam block khong doi ket qua, "
                              "chi doi so lan goi SDPA.")
-    parser.add_argument("--block-checkpoint", action="store_true",
-                        help="checkpoint tung khoi attention. --query-block chi ha dinh forward; "
-                             "autograd giu moi khoi den backward nen tong van la 32 x L x L x 4 "
-                             "byte. Co nay lam backward dung lai tung khoi mot, dinh = MOT khoi, "
-                             "doi lai attention duoc tinh them mot lan.")
-    parser.add_argument("--mem-trace", action="store_true",
-                        help="in bo nho da cap phat o tung moc cua N buoc dau. Dung khi OOM: "
-                             "loi OOM chi noi LOI XIN cuoi cung bao nhieu, khong noi 14 GiB "
-                             "da di dau. Ha --query-block tu 1024 xuong 256 lam loi xin nho "
-                             "di ma tong khong giam, vi autograd giu MOI khoi den luc backward.")
+    # BAT SAN, khong phai co phai nho. Mot luot Kaggle da chay lai y nguyen loi OOM cu chi vi
+    # notebook con ban cu nen khong truyen co: ban va nam sau mot co la ban va khong duoc bat.
+    parser.add_argument("--no-block-checkpoint", dest="block_checkpoint",
+                        action="store_false", default=True,
+                        help="tat checkpoint tung khoi attention. --query-block chi ha dinh "
+                             "FORWARD; autograd giu moi khoi den backward nen tong van la "
+                             "32 x L x L x 4 byte (8.00 GiB o L=8192) va OOM. Checkpoint tung "
+                             "khoi lam backward dung lai tung khoi mot: dinh = MOT khoi, doi "
+                             "lai attention tinh them mot lan. Chi tat de do lai con so cu.")
+    parser.add_argument("--no-mem-trace", dest="mem_trace",
+                        action="store_false", default=True,
+                        help="tat phep do bo nho o 3 buoc dau. Mac dinh BAT vi loi OOM chi noi "
+                             "LOI XIN cuoi cung bao nhieu, khong noi 14 GiB da di dau -- va do "
+                             "la ly do mot chan doan truoc day da sai.")
+    # Nhan ca ten co cu lam vo hieu: notebook ban nao cung chay duoc, khong co ban nao chet o
+    # "unrecognized arguments" sau khi da tai 8 GB trong so.
+    parser.add_argument("--block-checkpoint", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--mem-trace", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--cache", help="prefix for the tokenised cache, e.g. sft.tok")
     parser.add_argument("--inspect", type=int, metavar="N",
                         help="print the mask for N conversations and exit; no GPU, no peft")
