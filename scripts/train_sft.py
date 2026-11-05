@@ -54,6 +54,7 @@ for _stream in (sys.stdout, sys.stderr):
 
 IGNORE = -100
 QUERY_BLOCK = 1024
+BLOCK_CKPT = False
 LOSS_CHUNK = 1024
 
 
@@ -111,6 +112,7 @@ def block_attention_forward(module, query, key, value, attention_mask,
     decoder layer is already wrapped in gradient checkpointing above this.
     """
     import torch
+    from torch.utils.checkpoint import checkpoint as _ckpt
     from transformers.integrations.sdpa_attention import repeat_kv
 
     groups = getattr(module, "num_key_value_groups", 1)
@@ -130,9 +132,21 @@ def block_attention_forward(module, query, key, value, attention_mask,
             rows_ = torch.arange(start, stop, device=query.device)
             cols = torch.arange(stop, device=query.device)
             mask = cols[None, :] <= rows_[:, None]
-        pieces.append(torch.nn.functional.scaled_dot_product_attention(
-            query[:, :, start:stop], key[:, :, :stop], value[:, :, :stop],
-            attn_mask=mask, dropout_p=dropout, scale=scaling, is_causal=False))
+        def one_block(q, k, v, m):
+            return torch.nn.functional.scaled_dot_product_attention(
+                q, k, v, attn_mask=m, dropout_p=dropout, scale=scaling, is_causal=False)
+
+        qb, kb, vb = query[:, :, start:stop], key[:, :, :stop], value[:, :, :stop]
+        if BLOCK_CKPT:
+            # Chia khoi chi ha dinh cua FORWARD. Autograd giu tensor da luu cua MOI khoi den
+            # luc backward, nen tong van la 32 x L x L x 4 byte -- dung cai ma chia khoi duoc
+            # them vao de tranh. Do duoc: ha --query-block 1024 -> 256 lam loi xin OOM nho tu
+            # 1024 MiB xuong 240 MiB trong khi tong PyTorch giu con TANG (13.89 -> 13.98 GiB).
+            # Checkpoint tung khoi thi backward dung lai tung khoi mot: dinh = MOT khoi.
+            # Gia: attention tinh lai mot lan nua (lop decoder vo ngoai da checkpoint san).
+            pieces.append(_ckpt(one_block, qb, kb, vb, mask, use_reentrant=False))
+        else:
+            pieces.append(one_block(qb, kb, vb, mask))
 
     return torch.cat(pieces, dim=2).transpose(1, 2).contiguous(), None
 
@@ -286,7 +300,7 @@ def _keep_awake() -> None:
 
 
 def main() -> None:
-    global QUERY_BLOCK   # --query-block ghi vao day; block_attention_forward doc no
+    global QUERY_BLOCK, BLOCK_CKPT   # block_attention_forward doc hai bien nay
     _keep_awake()
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -347,6 +361,16 @@ def main() -> None:
                              "block 1024 = 1024 MiB (do duoc tren T4, khong phai uoc luong) -- "
                              "ha xuong 256 thi con 256 MiB. Giam block khong doi ket qua, "
                              "chi doi so lan goi SDPA.")
+    parser.add_argument("--block-checkpoint", action="store_true",
+                        help="checkpoint tung khoi attention. --query-block chi ha dinh forward; "
+                             "autograd giu moi khoi den backward nen tong van la 32 x L x L x 4 "
+                             "byte. Co nay lam backward dung lai tung khoi mot, dinh = MOT khoi, "
+                             "doi lai attention duoc tinh them mot lan.")
+    parser.add_argument("--mem-trace", action="store_true",
+                        help="in bo nho da cap phat o tung moc cua N buoc dau. Dung khi OOM: "
+                             "loi OOM chi noi LOI XIN cuoi cung bao nhieu, khong noi 14 GiB "
+                             "da di dau. Ha --query-block tu 1024 xuong 256 lam loi xin nho "
+                             "di ma tong khong giam, vi autograd giu MOI khoi den luc backward.")
     parser.add_argument("--cache", help="prefix for the tokenised cache, e.g. sft.tok")
     parser.add_argument("--inspect", type=int, metavar="N",
                         help="print the mask for N conversations and exit; no GPU, no peft")
@@ -436,8 +460,13 @@ def main() -> None:
         from transformers.modeling_utils import AttentionInterface
         AttentionInterface.register("block", block_attention_forward)
         QUERY_BLOCK = args.query_block
-        print(f"attention theo khối {QUERY_BLOCK} query: không dựng ma trận (L, L); "
-              f"đỉnh một khối ≈ {32 * QUERY_BLOCK * args.max_seq_len * 4 / 1024**2:.0f} MiB")
+        BLOCK_CKPT = args.block_checkpoint
+        print(f"attention theo khối {QUERY_BLOCK} query; đỉnh một khối ≈ "
+              f"{32 * QUERY_BLOCK * args.max_seq_len * 4 / 1024**2:.0f} MiB, "
+              + ("checkpoint từng khối: đỉnh = MỘT khối"
+                 if BLOCK_CKPT else
+                 f"KHÔNG checkpoint: autograd giữ mọi khối, tổng ≈ "
+                 f"{32 * args.max_seq_len * args.max_seq_len * 4 / 2**30:.2f} GiB"))
     dtype = torch.bfloat16 if bf16 else torch.float16
     quant = None
     if args.quant == "nf4":
@@ -486,6 +515,10 @@ def main() -> None:
                         "gate_proj", "up_proj", "down_proj"]))
     model.enable_input_require_grads()
     model.print_trainable_parameters()
+    if args.mem_trace and torch.cuda.is_available():
+        print(f"[mem] sau khi dung adapter, TRUOC buoc nao: "
+              f"cap phat {torch.cuda.memory_allocated() / 2**30:.2f} GiB / "
+              f"giu {torch.cuda.memory_reserved() / 2**30:.2f} GiB")
 
     class ChunkedLossTrainer(Trainer):
         """Runs the body, then the loss in chunks; never calls the full model's forward.
@@ -510,11 +543,26 @@ def main() -> None:
                 raise RuntimeError(f"bóc vỏ {type(model).__name__} ra {type(causal).__name__}, "
                                    "không có lm_head + model")
             labels = inputs["labels"][:, 1:]
+            trace = args.mem_trace and torch.cuda.is_available() and self.state.global_step < 3
+            if trace:
+                length = inputs["input_ids"].shape[1]
+                print(f"[mem] buoc {self.state.global_step} L={length} "
+                      f"vao: {torch.cuda.memory_allocated() / 2**30:.2f} GiB; "
+                      f"ma tran diem neu giu MOI khoi = "
+                      f"{32 * length * length * 4 / 2**30:.2f} GiB", flush=True)
             with torch.autocast("cuda", dtype=dtype, enabled=torch.cuda.is_available()):
                 hidden = causal.model(input_ids=inputs["input_ids"],
                                       attention_mask=inputs.get("attention_mask")).last_hidden_state
+                if trace:
+                    print(f"[mem] buoc {self.state.global_step} sau forward than model: "
+                          f"{torch.cuda.memory_allocated() / 2**30:.2f} GiB", flush=True)
                 total = chunked_cross_entropy(causal.lm_head, hidden[:, :-1], labels,
                                               chunk=args.loss_chunk)
+                if trace:
+                    print(f"[mem] buoc {self.state.global_step} sau loss, TRUOC backward: "
+                          f"{torch.cuda.memory_allocated() / 2**30:.2f} GiB "
+                          f"(dinh tu dau {torch.cuda.max_memory_allocated() / 2**30:.2f} GiB)",
+                          flush=True)
             # Mirrors ForCausalLMLoss: a sum divided by the token count of the whole
             # accumulation window, so short and long samples carry their true weight. When
             # Trainer withholds that count it divides by grad_accum itself, and dividing by
