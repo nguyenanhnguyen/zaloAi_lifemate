@@ -202,7 +202,15 @@ def encode(tokenizer, row: dict, max_len: int) -> dict | None:
 def build(tokenizer, path: Path, max_len: int, cache: Path | None) -> list[dict]:
     if cache and cache.exists():
         kept = [json.loads(line) for line in cache.open(encoding="utf-8") if line.strip()]
-        print(f"{path.name}: {len(kept)} conversations from cache {cache.name}")
+        # Loc LAI theo max_len. Cache duoc dung o mot --max-seq-len nao do, va truoc day nhanh
+        # nay tra ve nguyen xi: ha --max-seq-len de thoat OOM se bi BO QUA mot cach am tham,
+        # mau 8000 token van vao va van OOM, con log thi bao dang chay o do dai moi.
+        over = [item for item in kept if len(item["input_ids"]) > max_len]
+        kept = [item for item in kept if len(item["input_ids"]) <= max_len]
+        print(f"{path.name}: {len(kept)} conversations from cache {cache.name}"
+              + (f"; {len(over)} bo vi dai hon {max_len} token "
+                 f"(cache dung o do dai khac, dai nhat {max(len(i['input_ids']) for i in over)})"
+                 if over else ""))
         return kept
     kept, dropped = [], 0
     for row in rows(path):

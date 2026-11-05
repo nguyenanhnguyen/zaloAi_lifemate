@@ -1310,3 +1310,66 @@ nên chuyện Krita hay bất cứ app nào đang mở không còn ảnh hưởn
 |---|---|---|
 | Kết luận một nguyên nhân mà không giải thích được các lần KHÔNG xảy ra | Tôi viết "tràn VRAM làm sập máy" dù người dùng đã nhiều lần tràn shared RAM mà vẫn xong. Câu đó không giải thích được các lần sống sót | Một nguyên nhân chỉ đứng được khi nó giải thích cả **các lần không xảy ra**. Nếu không, nó là điều kiện cần, và còn thiếu điều kiện đủ |
 | Bỏ qua phần còn lại của máy khi truy lỗi | Thủ phạm thứ hai là một app đồ hoạ mở sẵn với tài liệu 4096² 13 layer, tìm ra bằng `krita.log` trong 2 phút | Khi một lượt chạy sập máy, đọc log của **các app khác** đang mở, không chỉ log của mình |
+
+## 2026-11-05 — preflight đạt, và bốn số `[mem]` chỉ đúng chỗ phải cắt
+
+Chặng preflight (`--limit 2 --grad-accum 1`) chặn **bốn** lỗi khác nhau trong ~40 phút, mỗi lỗi
+đều đủ để giết lượt 6.6 giờ:
+
+| | Lỗi | Nguồn |
+|---|---|---|
+| 1 | dataset còn script cũ → `lm_head trên DataParallel` | tồn đọng |
+| 2 | `warmup_ratio` bị bỏ ở transformers 5.16.1 | Kaggle nâng bản |
+| 3 | `bitsandbytes` bị gỡ khỏi image | Kaggle đổi image |
+| 4 | OOM 8.00 GiB ma trận điểm attention | **chẩn đoán cũ sai** |
+
+Đối chiếu: ba lượt trước khi có preflight tốn **4h12 + 5 phút + 5 phút** và không lượt nào để
+lại trọng số.
+
+### Chia khối KHÔNG hạ đỉnh backward — chẩn đoán đầu tiên của tôi sai
+
+| | lỗi xin cuối | tổng PyTorch giữ |
+|---|---|---|
+| `--query-block 1024` | 1024 MiB | 13.89 GiB |
+| `--query-block 256` | **240 MiB** | **13.98 GiB** ↑ |
+
+Lời xin nhỏ đi 4 lần, tổng **tăng**. Chia khối chỉ hạ đỉnh của *forward*; autograd giữ tensor đã
+lưu của **mọi** khối đến lúc backward, nên tổng vẫn là `32 × L × L × 4 byte` — đúng cái mà chia
+khối được thêm vào để tránh. Tôi đọc "1024 MiB" rồi kết luận ngay, không hỏi 14 GiB còn lại ở đâu.
+
+Sửa: checkpoint **từng khối** (mặc định bật). Kiểm bằng số trên sm86 fp32: forward và `grad k`,
+`grad v` giống **từng bit**; `grad q` lệch `1.192e-07` = đúng **một ULP** của fp32, là sai số làm
+tròn do thứ tự tính lại. Preflight sau đó đạt: `returncode 0`, `eval_loss 2.646`, `VRAM đỉnh
+12.97 GiB`.
+
+### Bốn số `[mem]` của lượt thật
+
+| L | tĩnh (trọng số + adapter) | sau forward thân model | đỉnh |
+|---|---|---|---|
+| 4559 | 7.74 | 9.57 | 11.89 |
+| 6447 | 7.74 | 10.27 | 12.59 |
+| 7080 | 8.00 | 10.76 | **13.93** |
+
+Đỉnh tăng **0.81 GiB mỗi 1000 token**. Ngoại suy 8192 → **14.34 GiB** trên card 14.56, mà hồi quy
+còn **dự báo thiếu** ở đầu cao (13.61 dự báo vs 13.93 đo tại L=7080). 8192 không có biên.
+
+Và lời xin cuối cùng tự khai: **1.16 GiB = 2 × (1024 × 151936 × 4 byte)** — logits fp32 của *một*
+chunk loss cộng gradient. `--loss-chunk 256` hạ nó xuống **0.29 GiB**. Chunk loss đã được
+checkpoint từ trước, nên ở đây giảm chunk giảm cả tổng — khác với `--query-block`.
+
+Chốt: `--loss-chunk 256` + `--max-seq-len 7168` (giữ 90.6% hội thoại), đỉnh dự báo ≈ 12.7 GiB.
+
+### Bẫy đi kèm: cache bỏ qua `--max-seq-len`
+
+Nhánh `if cache.exists()` của `build()` trả về nguyên xi, **không lọc lại** theo `max_len`. Hạ
+`--max-seq-len` để thoát OOM sẽ bị bỏ qua **âm thầm**: mẫu 8000 token vẫn vào, vẫn OOM, còn log
+vẫn báo đang chạy ở độ dài mới. Đã sửa: lọc lại và in ra đã bỏ bao nhiêu, dài nhất bao nhiêu.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Đọc con số trong thông báo OOM rồi kết luận ngay | `Tried to allocate 1024.00 MiB` khớp chính xác `32 × 1024 × 8192 × 4`, nên tôi tin đã tìm ra. Hạ khối xong tổng lại tăng | Thông báo OOM chỉ nói **lời xin cuối cùng**, không nói 14 GiB đã đi đâu. Phải đo từng mốc trước khi sửa — `--mem-trace` giờ bật sẵn |
+| Chia nhỏ một phép tính mà không checkpoint | Chia khối hạ đỉnh forward nhưng autograd giữ mọi khối đến backward, tổng không đổi | Chia nhỏ chỉ hạ bộ nhớ khi phần đã chia **được checkpoint**. `chunked_cross_entropy` làm đúng từ đầu; `block_attention_forward` thì không |
+| Để bản vá sau một cờ, rồi bắt cập nhật hai thứ cho khớp | Một lượt chạy lại **y nguyên** lỗi OOM cũ vì notebook còn bản cũ nên không truyền `--block-checkpoint` | Bản vá nằm sau một cờ là bản vá không được bật. Mặc định phải là cấu hình đúng; cờ chỉ để **tắt** |
+| Cache tắt ngang một tham số mà không nói | `build()` trả cache nguyên xi, nên `--max-seq-len` thấp hơn bị bỏ qua không một dòng log | Cache phải áp lại mọi điều kiện mà khoá cache không chứa, hoặc khoá cache phải chứa chúng |
