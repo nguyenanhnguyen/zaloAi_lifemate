@@ -100,7 +100,10 @@ def block_attention_forward(module, query, key, value, attention_mask,
     (1, 32, L, L) score matrix: 1.1 GiB at L=4335, 4.0 GiB at L=8192. Rather than keep
     guessing why a kernel was rejected, this sidesteps the question: each block only ever
     scores QUERY_BLOCK queries against the keys up to its own end, so the peak is
-    32 x 1024 x L instead of 32 x L x L -- 512 MiB at L=8192, and flat in L per block.
+    32 x BLOCK x L instead of 32 x L x L. Measured on T4: at BLOCK=1024 and L=8192 the
+    backward pass asked for 1024.00 MiB for one block -- the math backend builds the scores in
+    fp32, not fp16, so this is 32 x 1024 x 8192 x 4 bytes exactly. An earlier version of this
+    docstring said 512 MiB by assuming fp16 and was wrong by 2x. BLOCK is --query-block.
 
     Slower than a fused kernel, but a T4 at 8192 tokens is compute-bound anyway, and the
     arithmetic is plain SDPA per block so the result is bit-comparable with the sdpa path
@@ -283,6 +286,7 @@ def _keep_awake() -> None:
 
 
 def main() -> None:
+    global QUERY_BLOCK   # --query-block ghi vao day; block_attention_forward doc no
     _keep_awake()
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -337,6 +341,12 @@ def main() -> None:
     parser.add_argument("--attn", choices=["sdpa", "block"], default="sdpa",
                         help="block = attention in query blocks, for cards where SDPA falls back "
                              "to the math kernel and its (L, L) score matrix does not fit")
+    parser.add_argument("--query-block", type=int, default=QUERY_BLOCK,
+                        help="so query moi khoi cua --attn block. Dinh bo nho la ma tran diem "
+                             "cua MOT khoi: heads x block x L x 4 byte. O 32 heads, L=8192, "
+                             "block 1024 = 1024 MiB (do duoc tren T4, khong phai uoc luong) -- "
+                             "ha xuong 256 thi con 256 MiB. Giam block khong doi ket qua, "
+                             "chi doi so lan goi SDPA.")
     parser.add_argument("--cache", help="prefix for the tokenised cache, e.g. sft.tok")
     parser.add_argument("--inspect", type=int, metavar="N",
                         help="print the mask for N conversations and exit; no GPU, no peft")
@@ -425,7 +435,9 @@ def main() -> None:
         # saved adapter config both say which attention the weights were trained with.
         from transformers.modeling_utils import AttentionInterface
         AttentionInterface.register("block", block_attention_forward)
-        print(f"attention theo khối {QUERY_BLOCK} query: không dựng ma trận (L, L)")
+        QUERY_BLOCK = args.query_block
+        print(f"attention theo khối {QUERY_BLOCK} query: không dựng ma trận (L, L); "
+              f"đỉnh một khối ≈ {32 * QUERY_BLOCK * args.max_seq_len * 4 / 1024**2:.0f} MiB")
     dtype = torch.bfloat16 if bf16 else torch.float16
     quant = None
     if args.quant == "nf4":
