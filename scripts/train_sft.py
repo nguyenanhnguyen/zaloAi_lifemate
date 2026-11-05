@@ -385,6 +385,11 @@ def main() -> None:
                              "la ly do mot chan doan truoc day da sai.")
     # Nhan ca ten co cu lam vo hieu: notebook ban nao cung chay duoc, khong co ban nao chet o
     # "unrecognized arguments" sau khi da tai 8 GB trong so.
+    parser.add_argument("--longest", action="store_true",
+                        help="--limit lay cac hoi thoai DAI NHAT thay vi lay mau bat ky. Dung cho "
+                             "preflight: dinh bo nho ti le voi do dai, nen chi mau dai nhat moi "
+                             "chung minh duoc luot that vua. Khong dung khi huan luyen that -- "
+                             "no lam lech phan phoi du lieu.")
     parser.add_argument("--block-checkpoint", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--mem-trace", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--cache", help="prefix for the tokenised cache, e.g. sft.tok")
@@ -433,7 +438,13 @@ def main() -> None:
     def shrink(items, keep, name):
         if keep is None or keep >= len(items):
             return items
-        picked = random.Random(args.seed).sample(items, keep) if keep else []
+        if args.longest:
+            # Preflight phai thu TRUONG HOP XAU NHAT. Lay mau bat ky thi hai hoi thoai ngan co
+            # the di qua tron tru roi luot that chet o mau dai dau tien -- dung chuyen da xay
+            # ra: preflight dat o L=4559 va luot that OOM o L=7080.
+            picked = sorted(items, key=lambda it: -len(it["input_ids"]))[:keep]
+        else:
+            picked = random.Random(args.seed).sample(items, keep) if keep else []
         tokens = sum(len(item["input_ids"]) for item in picked)
         supervised = sum(sum(1 for x in item["labels"] if x != IGNORE) for item in picked)
         print(f"{name}: lấy {len(picked)}/{len(items)} hội thoại, {tokens:,} token "
