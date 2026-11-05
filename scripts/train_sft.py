@@ -357,9 +357,13 @@ def main() -> None:
                         help="tiếp tục huấn luyện. Không tham số = checkpoint mới nhất trong "
                              "--out; hoặc truyền thẳng đường dẫn checkpoint-N")
     parser.add_argument("--device", choices=["single", "balanced"], default="single",
-                        help="single = một card, không có hook chuyển tensor của accelerate "
-                             "(chỗ nổ illegal memory access). balanced = chia trên mọi card, "
-                             "chỉ cần khi trọng số không vừa một card")
+                        help="single = một card. balanced = chia các lớp trên mọi card, nên "
+                             "CẢ hoạt hoá cũng chia theo. Đo được trên 2x T4: một card không "
+                             "đủ ở 8192 kể cả với nf4 -- tĩnh 3.44 GiB nhưng hoạt hoá forward "
+                             "thêm 6.07 GiB ở L=8181 và backward vượt 14.5 GiB. balanced từng "
+                             "nổ illegal memory access ở bước 46/80, nhưng lúc đó Trainer còn "
+                             "bọc DataParallel lên trên một model đã chia sẵn; n_gpu giờ ghim "
+                             "về 1 cho cả hai device_map.")
     parser.add_argument("--attn", choices=["sdpa", "block"], default="sdpa",
                         help="block = attention in query blocks, for cards where SDPA falls back "
                              "to the math kernel and its (L, L) score matrix does not fit")
@@ -694,9 +698,14 @@ def main() -> None:
     # DataParallel sẽ rải batch sang card thứ hai -- đúng kiểu chuyển tensor qua card mà
     # --device single được thêm vào để tránh. Ghim n_gpu về 1 là cách nói với Trainer đúng thứ
     # device_map đã làm.
-    if device_map != "balanced" and count > 1:
+    # Ghim cho CA HAI device_map, khong chi "single". Dieu kien cu loai tru "balanced", nhung
+    # balanced la song song MO HINH (moi card giu mot nua cac lop) -- bọc DataParallel len do
+    # con sai hon: no rai BATCH sang card thu hai trong khi model da bi chia san, tao dung kieu
+    # chuyen tensor qua card da no `illegal memory access` o buoc 46/80. Khong co truong hop nao
+    # o day can DataParallel.
+    if count > 1:
         trainer.args._n_gpu = 1
-        print("ghim n_gpu=1: không bọc DataParallel")
+        print(f"ghim n_gpu=1: không bọc DataParallel (device_map={device_map})")
     import contextlib
     from torch.nn.attention import SDPBackend, sdpa_kernel
     attention = sdpa_kernel([SDPBackend.EFFICIENT_ATTENTION]) if old_gpu else contextlib.nullcontext()
