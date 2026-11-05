@@ -562,6 +562,12 @@ def main() -> None:
             trace = args.mem_trace and torch.cuda.is_available() and self.state.global_step < 3
             if trace:
                 length = inputs["input_ids"].shape[1]
+                # In dinh cua MAU TRUOC roi dat lai. Ban dau day in dinh tich luy, va vi vay
+                # khong quy duoc cho mau nao: log cho thay mot mau L=4869 "co" dinh 14.05 GiB
+                # cao hon mau L=6574 truoc no, dieu chi la tac dong cua mot mau khac.
+                print(f"[mem] dinh cua mau vua xong: "
+                      f"{torch.cuda.max_memory_allocated() / 2**30:.2f} GiB", flush=True)
+                torch.cuda.reset_peak_memory_stats()
                 print(f"[mem] buoc {self.state.global_step} L={length} "
                       f"vao: {torch.cuda.memory_allocated() / 2**30:.2f} GiB; "
                       f"ma tran diem neu giu MOI khoi = "
