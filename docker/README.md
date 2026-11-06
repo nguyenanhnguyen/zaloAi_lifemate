@@ -37,6 +37,7 @@ Build mất ~20–40 phút lần đầu (tải wheel + copy 13.4 GB trọng số
 | cả hệ < 6B, LLM < 5B | Qwen3-4B (4.0B) + PhoWhisper-large (1.5B) = 5.5B |
 | giải mã tất định | `do_sample=False, num_beams=1` ở cả LLM và ASR; seed 42 cho random/numpy/torch |
 | gói nộp gồm code huấn luyện | `scripts/` vào trọn, gồm `train_sft.py` |
+| `zaic_tools` của đúng split | **không** nhúng vào image: nó là thư mục package đi kèm `/data`, BTC giao bản riêng cho từng split |
 | không đọc `<split>_environment/` | không có đường dẫn nào tới nó; `/data` mount `:ro` |
 
 ## Hai chỗ `entrypoint.py` phải dò thay vì đoán

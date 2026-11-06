@@ -18,6 +18,10 @@ import sys
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent
+# Trong image, entrypoint.py nằm cạnh scripts/ ở /app. Ngoài image nó nằm trong docker/, nên
+# scripts/ ở thư mục cha. Dò thay vì ghim: nhờ vậy chuỗi này KIỂM ĐƯỢC trên máy dev mà không
+# cần Docker Engine, và một lỗi đường dẫn không phải chờ tới lượt chấm mới lộ.
+SCRIPTS = APP / "scripts" if (APP / "scripts" / "infer.py").exists() else APP.parent / "scripts"
 DATA = Path(os.environ.get("DATA_DIR", "/data"))
 RESULT = Path(os.environ.get("RESULT_DIR", "/app/result"))
 
@@ -50,16 +54,22 @@ def find_split() -> tuple[Path, str]:
 def main() -> int:
     data_root, split = find_split()
     folder = data_root / split
-    print(f"[entrypoint] data_root={data_root} split={split}", flush=True)
-    for required in (f"{split}.jsonl", f"{split}_tools_catalog.json", "zaic_tools.py"):
+    print(f"[entrypoint] data_root={data_root} split={split} scripts={SCRIPTS}", flush=True)
+    for required in (f"{split}.jsonl", f"{split}_tools_catalog.json"):
         if not (folder / required).exists():
             print(f"[entrypoint] CẢNH BÁO: thiếu {folder / required}", flush=True)
+    # zaic_tools là THƯ MỤC package trong mỗi split, không phải một file .py -- `infer.py` nạp
+    # nó bằng `sys.path.insert(0, split_dir)`. Image không nhúng nó: BTC giao bản riêng cho
+    # từng split và luật bắt mọi lệnh phải đi qua đúng bản đó.
+    if not (folder / "zaic_tools").is_dir() and not (folder / "zaic_tools.py").exists():
+        print(f"[entrypoint] CẢNH BÁO: không thấy zaic_tools trong {folder} -- "
+              "`from zaic_tools import ToolEnv` sẽ chết", flush=True)
 
     RESULT.mkdir(parents=True, exist_ok=True)
     out = RESULT / "submission.jsonl"
 
     command = [
-        sys.executable, str(APP / "scripts" / "infer.py"),
+        sys.executable, str(SCRIPTS / "infer.py"),
         "--data-root", str(data_root),
         "--split", split,
         "--output", str(out),
@@ -81,7 +91,7 @@ def main() -> int:
         print(f"[entrypoint] thêm cờ từ INFER_ARGS: {extra}", flush=True)
 
     print("[entrypoint] " + " ".join(command), flush=True)
-    code = subprocess.run(command, cwd=str(APP)).returncode
+    code = subprocess.run(command, cwd=str(SCRIPTS.parent)).returncode
     lines = sum(1 for _ in out.open(encoding="utf-8")) if out.exists() else 0
     print(f"[entrypoint] xong, mã {code}; {out} có {lines} dòng", flush=True)
     # infer.py trả về khác 0 nếu có mẫu lỗi, nhưng bài nộp vẫn đủ dòng và vẫn chấm được:
