@@ -73,59 +73,63 @@ Adapter chỉ là giọt cuối: nhánh LoRA trong `peft/tuners/lora/bnb.py` gi�
 tạm của `lora_A`/`lora_B` cùng lúc trong MLP, nên nó đòi thêm vài trăm MiB ở đúng chỗ vốn đã
 sát mép — traceback dừng ở `lora_B(lora_A(dropout(x)))`, xin 256 MiB khi còn 0 byte.
 
-**Hệ quả cho phép đo:** prompt bị cắt xuống 1400 token thì model thấy ít tool hơn. Nên
-baseline (bước 1) **phải** dùng đúng `--prompt-token-budget 1400`, nếu không ta so một model
-nhìn 7936 token với một model nhìn 1400 và gán hiệu số đó cho adapter.
+### Nhưng 1400 token là một cái bẫy — đo rồi mới biết
 
-### Bước 0 — hai mẫu, để biết dây nối đúng và máy không sập
+Smoke ở `--prompt-token-budget 1400` chạy xanh (0 failed, 5.8 s/mẫu) nhưng log khai hỏng:
 
-> **Mọi lệnh dưới đây là MỘT dòng.** Đừng chèn `^` để tách dòng: đó là nối dòng của
-> `cmd.exe`, PowerShell không hiểu và báo `Missing expression after unary operator '--'`.
-> PowerShell nối dòng bằng backtick, nhưng một dòng liền thì không sai được.
-
-
-Chạy cái này trước, luôn. Hai lượt Kaggle đã chết vì bỏ qua bước tương đương: nạp được model
-xong không chứng minh được gì.
-
-```powershell
-env\Scripts\python.exe scripts\infer.py --split train --max-samples 2 --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --prompt-token-budget 1400 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_smoke\out.jsonl
+```
+train_0001  "nếu mai mưa thì dời..."  → routed to 2/50 tools from apps ['gold_price']
+train_0002  "nếu mai mưa thì huỷ..."  → routed to 5/44 tools from apps ['tv']
 ```
 
-Trong log phải có `Loading LoRA adapter finetune\lora_V4`. Không có dòng đó thì đang chạy
-base và mọi so sánh sau đó là so base với base.
+Cả hai mẫu nói về **mưa** và cả hai bị `fit_tools` định tuyến sai app, rồi model gọi
+`sys.ask_missing_info` cho `weather.get_weather` — tool **không có trong prompt**. Chạy A/B ở
+đây thì cả hai lượt đều không thấy tool cần dùng, cùng rơi vào `KHÔNG ghi`, và phép so đo
+được **con số không**.
 
-Còn OOM thì hạ `--prompt-token-budget` xuống **1000** (đo được 3.05 GiB ở 1k token), rồi
-800. Đừng chạm `--context-size`: cache ở đây là động nên nó không phải thứ đang chiếm chỗ.
+Đo ngân sách thật cần cho 20 mẫu đầu của `ids50.txt` (thuần CPU, `_prompt_tokens` + catalog):
 
-Đừng nâng `--vram-fraction` lên để "cho qua". Nâng lên là mở lại đường tràn sang shared
-memory: nó sẽ chạy, 160 s/mẫu, và trên card 4 GB thì tràn VRAM **làm sập máy** chứ không
-báo OOM. Thà OOM trong 2 giây.
+| | token |
+|---|---|
+| nén, giữ **mọi** tool — nhỏ nhất | 1,263 |
+| nén — trung vị | 3,790 |
+| nén — **lớn nhất** (`train_0093`, 60 tool) | **5,152** |
 
-### Bước 1 và 2 — hai lượt 20 mẫu, đổi đúng một biến
+**Để không bị định tuyến app, ngân sách phải ≥ 5152 token.** Không có ngân sách nào vừa dưới
+3.40 GiB vừa trên 5152 — tức trên card này, với trần VRAM cứng, **không tồn tại** cấu hình
+cho A/B công bằng. Đó là kết luận, không phải tham số cần dò thêm.
 
-Vì đã hạ context, **bài nộp của `local_v6` (ctx 10240) không còn là nhóm đối chứng nữa**.
-Phải dựng lại baseline ở cùng 8192, nếu không ta sẽ gán cho adapter cái mà context gây ra.
+### Thiết kế đúng: lặp lại y nguyên `local_v6`, thêm một cờ
+
+`local_v6` đã chạy được 50 mẫu ở ctx 10240, **không** `--vram-fraction` (mặc định 0.90),
+**không** `--prompt-token-budget` (nên ngân sách = 9984 > 5152, không mẫu nào bị định tuyến).
+Giá phải trả là 160 s/mẫu. Bài nộp của nó **chính là baseline** — không cần chạy lại.
+
+Nên `local_v7` = lệnh của `local_v6` cộng **đúng một cờ**:
 
 ```powershell
-mkdir results\local_v7_base, results\local_v7_lora
-Get-Content results\local_v6\ids50.txt | Select-Object -First 20 > results\local_v7_base\ids20.txt
+env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v6\ids50.txt) --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 10240 --max-seconds 600 --xref-gate --resume --output results\local_v7\lora.jsonl --metrics-output results\local_v7\lora.metrics.jsonl
 ```
 
-```powershell
-# Bước 1 — KHÔNG adapter
-env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --llm-precision 4bit --context-size 8192 --prompt-token-budget 1400 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_base\base.jsonl
+Giữ `--xref-gate` dù `local_v6` kết luận nó đắt: bỏ đi là đổi **hai** biến, và khi đó hiệu số
+không quy được cho adapter. `--resume` để dừng giữa đường không mất gì. 50 mẫu × ~160 s ≈
+**2.2 giờ**.
 
-# Bước 2 — CÓ adapter, mọi thứ khác y nguyên
-env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --prompt-token-budget 1400 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_lora\lora.jsonl
-```
+Không truyền `--vram-fraction` ở lượt này — `local_v6` không truyền, và thêm vào là đổi thêm
+một biến. Nó cũng chính là thứ đã chặn lượt smoke: trần cứng 3.40 GiB cắt đúng đường tràn
+sang shared memory mà `local_v6` dựa vào để sống.
 
-20 mẫu × ~160 s ≈ 55 phút mỗi lượt. Dùng `--resume` nếu phải dừng giữa đường.
+Rủi ro đã biết: adapter thêm ~132 MiB tĩnh và ~250 MiB tạm trong MLP. Nếu OOM, thêm
+`--prompt-token-budget 5200` — vừa trên mức 5152 nên vẫn không mẫu nào bị định tuyến, mà cắt
+được phần schema nguyên bản (đầy đủ 7,051 token ở `train_0093` xuống còn nén 5,152).
+**Nếu phải dùng cờ đó thì baseline `local_v6` không còn dùng được**, và phải chạy lại nó với
+cùng cờ — hai lượt, 4.4 giờ.
 
 ## Chấm, và đọc đúng dòng
 
 ```powershell
-env\Scripts\python.exe scripts\score.py results\local_v7_lora\lora.jsonl --split train
-env\Scripts\python.exe scripts\diag\action_buckets.py results\local_v7_lora\lora.jsonl --baseline results\local_v7_base\base.jsonl
+env\Scripts\python.exe scripts\score.py results\local_v7\lora.jsonl --split train
+env\Scripts\python.exe scripts\diag\action_buckets.py results\local_v7\lora.jsonl --baseline results\local_v6\xref_gate.jsonl
 ```
 
 Dòng phán xét **không** phải điểm F1 mà là:
@@ -137,7 +141,13 @@ thoát khỏi 'KHÔNG ghi': ?   rơi vào 'KHÔNG ghi': ?
 Toàn bộ lý do fine-tune là bucket đó — `local_v4` đo được 48% mẫu gold cần ghi mà ta không
 ghi. Adapter không kéo được số đó thì 9 giờ không mua được gì, bất kể F1 nhúc nhích thế nào.
 
-Trên 20 mẫu, một dịch chuyển 1–2 mẫu là nhiễu. Chỉ tin khi nó đủ lớn để không cần tin.
+Trên 50 mẫu, dịch chuyển 1–2 mẫu là nhiễu. Chỉ tin khi nó đủ lớn để không cần tin.
+
+### Lượt smoke vẫn có giá trị, chỉ không phải giá trị tôi tưởng
+
+Nó chứng minh ba điều: adapter **nạp và gắn** đúng (`Loading LoRA adapter`, và không có dòng
+`merged` — đúng, vì 4-bit thì gắn kèm chứ không gộp), pipeline chạy hết không lỗi, và
+`--vram-fraction` báo OOM thay vì làm sập máy. Nó **không** chứng minh cấu hình đó đo được gì.
 
 ## Vì sao số local KHÔNG phải phán quyết
 
