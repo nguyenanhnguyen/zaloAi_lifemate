@@ -41,39 +41,87 @@ dir finetune\lora_V4
 Phải thấy đúng hai file, file `.safetensors` khoảng 264 MB. Thiếu file nào thì mọi lệnh dưới
 đây sẽ nạp base và bạn sẽ chấm model gốc trong khi tin là đang chấm adapter.
 
-## Chạy thử trên laptop (RTX 2050, 4 GB)
+## Chạy thử trên laptop (RTX 2050, 4 GB) — vì sao nó crash, và cách tránh
 
-Máy này chạy `local_v6` được ở 4-bit / context 10240 / 50 mẫu held-out, nên **không cần hạ
-model**. Và không hạ được: LoRA gắn chặt vào hình học của base — đổi sang Qwen2.5-1.5B thì
-adapter vô dụng.
+**Không hạ model, và cũng không hạ được.** LoRA gắn chặt vào hình học base: đổi sang
+Qwen2.5-1.5B thì adapter thành vô dụng. Đòn phải xoay là **context**, không phải model.
 
-`src/llm_agent.py` tự xử lý phần khó: bf16 thì **gộp** adapter vào trọng số, 4-bit thì
-**gắn kèm** (gộp vào trọng số 4-bit sẽ lượng tử hoá cả delta). Không phải truyền cờ gì thêm.
+Lý do crash tính được trước khi chạy. `local_v5`/`local_v6` đã đo **đỉnh GPU 4096 MiB —
+bão hoà**, tức không còn một MB dư nào ở context 10240:
 
-Lệnh `local_v7`, đổi **đúng một biến** so với `local_v6` là `--adapter`:
+| | MiB |
+|---|---|
+| trọng số nf4 | ~2300 |
+| KV cache @ ctx 10240 | **1440** (36 lớp × 8 kv head × 128 × 2 × 2 byte = 0.1406 MiB/token) |
+| cộng | ~3740 trên 4095, phần còn lại là hoạt hoá → bão hoà |
+| **adapter gắn kèm** | **+132** ← không còn chỗ. Đây là crash. |
+
+Adapter ở 4-bit được **gắn kèm** chứ không gộp (gộp vào trọng số 4-bit sẽ lượng tử hoá cả
+delta), nên 132 MiB fp16 đó là phần thêm thật, không bù trừ được.
+
+Hạ context 10240 → **8192** giải phóng 288 MiB, nhiều hơn mức adapter cần. Và 8192 đúng bằng
+`--max-seq-len` lúc huấn luyện, nên không phải một con số chọn bừa.
+
+Card 4 GB tràn VRAM **không báo OOM mà làm sập máy**, nên `--vram-fraction` là bắt buộc ở
+mọi lệnh dưới đây. Đừng bỏ.
+
+### Bước 0 — hai mẫu, để biết dây nối đúng và máy không sập
+
+Chạy cái này trước, luôn. Hai lượt Kaggle đã chết vì bỏ qua bước tương đương: nạp được model
+xong không chứng minh được gì.
 
 ```powershell
-env\Scripts\python.exe scripts\infer.py --split train ^
-  --sample-ids (cat results\local_v6\ids50.txt) ^
+env\Scripts\python.exe scripts\infer.py --split train --max-samples 2 ^
   --transcript-cache train_all.transcripts.jsonl ^
   --adapter finetune\lora_V4 ^
-  --llm-precision 4bit --context-size 10240 --max-seconds 600 --xref-gate ^
+  --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate ^
   --vram-fraction 0.85 ^
-  --output results\local_v7\adapter.jsonl ^
-  --metrics-output results\local_v7\adapter.metrics.jsonl
+  --output results\local_v7_smoke\out.jsonl
 ```
 
-Trong log phải có `Loading LoRA adapter finetune\lora_V4`. Không có dòng đó thì đang chạy base.
+Trong log phải có `Loading LoRA adapter finetune\lora_V4`. Không có dòng đó thì đang chạy
+base và mọi so sánh sau đó là so base với base.
 
-`--vram-fraction` là **bắt buộc**, đừng bỏ. Card 4 GB tràn VRAM không báo OOM mà làm sập máy;
-adapter thêm ~132 MB vào một cấu hình vốn đã sát mép.
+Máy sập ở bước này thì hạ tiếp `--context-size 6144` (giải phóng 576 MiB) rồi thử lại. Đừng
+hạ `--vram-fraction` để "cho chắc" — nó là trần, hạ xuống làm chật thêm.
+
+### Bước 1 và 2 — hai lượt 20 mẫu, đổi đúng một biến
+
+Vì đã hạ context, **bài nộp của `local_v6` (ctx 10240) không còn là nhóm đối chứng nữa**.
+Phải dựng lại baseline ở cùng 8192, nếu không ta sẽ gán cho adapter cái mà context gây ra.
+
+```powershell
+mkdir results\local_v7_base, results\local_v7_lora
+Get-Content results\local_v6\ids50.txt | Select-Object -First 20 > results\local_v7_base\ids20.txt
+```
+
+```powershell
+# Bước 1 — KHÔNG adapter
+env\Scripts\python.exe scripts\infer.py --split train ^
+  --sample-ids (cat results\local_v7_base\ids20.txt) ^
+  --transcript-cache train_all.transcripts.jsonl ^
+  --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate ^
+  --vram-fraction 0.85 ^
+  --output results\local_v7_base\base.jsonl
+
+# Bước 2 — CÓ adapter, mọi thứ khác y nguyên
+env\Scripts\python.exe scripts\infer.py --split train ^
+  --sample-ids (cat results\local_v7_base\ids20.txt) ^
+  --transcript-cache train_all.transcripts.jsonl ^
+  --adapter finetune\lora_V4 ^
+  --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate ^
+  --vram-fraction 0.85 ^
+  --output results\local_v7_lora\lora.jsonl
+```
+
+20 mẫu × ~160 s ≈ 55 phút mỗi lượt. Dùng `--resume` nếu phải dừng giữa đường.
 
 ## Chấm, và đọc đúng dòng
 
 ```powershell
-env\Scripts\python.exe scripts\score.py results\local_v7\adapter.jsonl --split train
-env\Scripts\python.exe scripts\diag\action_buckets.py results\local_v7\adapter.jsonl ^
-  --baseline results\local_v6\xref_gate.jsonl
+env\Scripts\python.exe scripts\score.py results\local_v7_lora\lora.jsonl --split train
+env\Scripts\python.exe scripts\diag\action_buckets.py results\local_v7_lora\lora.jsonl ^
+  --baseline results\local_v7_base\base.jsonl
 ```
 
 Dòng phán xét **không** phải điểm F1 mà là:
@@ -84,6 +132,8 @@ thoát khỏi 'KHÔNG ghi': ?   rơi vào 'KHÔNG ghi': ?
 
 Toàn bộ lý do fine-tune là bucket đó — `local_v4` đo được 48% mẫu gold cần ghi mà ta không
 ghi. Adapter không kéo được số đó thì 9 giờ không mua được gì, bất kể F1 nhúc nhích thế nào.
+
+Trên 20 mẫu, một dịch chuyển 1–2 mẫu là nhiễu. Chỉ tin khi nó đủ lớn để không cần tin.
 
 ## Vì sao số local KHÔNG phải phán quyết
 
