@@ -108,8 +108,12 @@ Giá phải trả là 160 s/mẫu. Bài nộp của nó **chính là baseline** 
 Nên `local_v7` = lệnh của `local_v6` cộng **đúng một cờ**:
 
 ```powershell
-env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v6\ids50.txt) --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 10240 --max-seconds 600 --xref-gate --resume --output results\local_v7\lora.jsonl --metrics-output results\local_v7\lora.metrics.jsonl
+env\Scripts\python.exe scripts\infer.py --split train --sample-ids ((Get-Content results\local_v6\ids50.txt) -split '\s+') --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 10240 --max-seconds 600 --xref-gate --resume --output results\local_v7\lora.jsonl --metrics-output results\local_v7\lora.metrics.jsonl
 ```
+
+`ids50.txt` nằm trên **một** dòng, và `cat` của PowerShell trả về một chuỗi — truyền thẳng
+`(cat file)` thì cả 50 ID thành MỘT argument và `infer.py` báo `Unknown sample IDs`. Phải
+`-split`. (README của `local_v6` ghi `(cat ...)`; nó sai, hoặc file hồi đó mỗi ID một dòng.)
 
 Giữ `--xref-gate` dù `local_v6` kết luận nó đắt: bỏ đi là đổi **hai** biến, và khi đó hiệu số
 không quy được cho adapter. `--resume` để dừng giữa đường không mất gì. 50 mẫu × ~160 s ≈
