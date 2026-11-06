@@ -46,24 +46,36 @@ Phải thấy đúng hai file, file `.safetensors` khoảng 264 MB. Thiếu file
 **Không hạ model, và cũng không hạ được.** LoRA gắn chặt vào hình học base: đổi sang
 Qwen2.5-1.5B thì adapter thành vô dụng. Đòn phải xoay là **context**, không phải model.
 
-Lý do crash tính được trước khi chạy. `local_v5`/`local_v6` đã đo **đỉnh GPU 4096 MiB —
-bão hoà**, tức không còn một MB dư nào ở context 10240:
+Thứ làm nổ VRAM **không** phải KV cache mà là **độ dài prompt lúc prefill**. Bản PyTorch
+này không có kernel flash-attention, nên đỉnh attention tăng siêu tuyến tính. `fit_tools()`
+trong `src/llm_agent.py` đã đo sẵn trên đúng card RTX 2050 4 GB này, 4-bit Qwen3-4B:
 
-| | MiB |
-|---|---|
-| trọng số nf4 | ~2300 |
-| KV cache @ ctx 10240 | **1440** (36 lớp × 8 kv head × 128 × 2 × 2 byte = 0.1406 MiB/token) |
-| cộng | ~3740 trên 4095, phần còn lại là hoạt hoá → bão hoà |
-| **adapter gắn kèm** | **+132** ← không còn chỗ. Đây là crash. |
+| prompt | thời gian | đỉnh VRAM |
+|---|---|---|
+| 1k token | 5.5 s | **3.05 GiB** |
+| 2k token | 28.3 s | **4.11 GiB** ← đã vượt 4 GB |
+| 3.9k token | 252.5 s | **7.54 GiB** |
 
-Adapter ở 4-bit được **gắn kèm** chứ không gộp (gộp vào trọng số 4-bit sẽ lượng tử hoá cả
-delta), nên 132 MiB fp16 đó là phần thêm thật, không bù trừ được.
+Vì vậy `LLMAgent` mặc định `prompt_token_budget=1800`. Nhưng `infer.py` truyền cờ
+`--prompt-token-budget` với mặc định **100000**, tức ghi đè mất con số đó: ngân sách thật
+thành `context_size - max_new_tokens` = **7936 token**. Prefill 7936 token trên card 4 GB.
 
-Hạ context 10240 → **8192** giải phóng 288 MiB, nhiều hơn mức adapter cần. Và 8192 đúng bằng
-`--max-seq-len` lúc huấn luyện, nên không phải một con số chọn bừa.
+`local_v6` sống sót ở đó là vì nó **tràn sang shared memory** (`local_v5` ghi "bám sát 4096,
+tràn shared memory") — đổi lại là 160 s/mẫu. Còn `--vram-fraction 0.85` đặt một trần **cứng**
+3.40 GiB, chặn đúng cái tràn đó, nên nó báo OOM ngay thay vì bò.
 
-Card 4 GB tràn VRAM **không báo OOM mà làm sập máy**, nên `--vram-fraction` là bắt buộc ở
-mọi lệnh dưới đây. Đừng bỏ.
+OOM, chứ không sập máy — `--vram-fraction` làm đúng việc của nó. Nhưng cũng cho thấy kết
+luận trước của tôi sai chỗ: tôi tính KV cache và hạ context, trong khi cache ở đây là
+**động** (`self.cache = None` rồi mới mọc), nên `--context-size` gần như không đổi gì.
+Đòn đúng là `--prompt-token-budget`.
+
+Adapter chỉ là giọt cuối: nhánh LoRA trong `peft/tuners/lora/bnb.py` giữ output của base và
+tạm của `lora_A`/`lora_B` cùng lúc trong MLP, nên nó đòi thêm vài trăm MiB ở đúng chỗ vốn đã
+sát mép — traceback dừng ở `lora_B(lora_A(dropout(x)))`, xin 256 MiB khi còn 0 byte.
+
+**Hệ quả cho phép đo:** prompt bị cắt xuống 1400 token thì model thấy ít tool hơn. Nên
+baseline (bước 1) **phải** dùng đúng `--prompt-token-budget 1400`, nếu không ta so một model
+nhìn 7936 token với một model nhìn 1400 và gán hiệu số đó cho adapter.
 
 ### Bước 0 — hai mẫu, để biết dây nối đúng và máy không sập
 
@@ -76,14 +88,18 @@ Chạy cái này trước, luôn. Hai lượt Kaggle đã chết vì bỏ qua b�
 xong không chứng minh được gì.
 
 ```powershell
-env\Scripts\python.exe scripts\infer.py --split train --max-samples 2 --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_smoke\out.jsonl
+env\Scripts\python.exe scripts\infer.py --split train --max-samples 2 --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --prompt-token-budget 1400 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_smoke\out.jsonl
 ```
 
 Trong log phải có `Loading LoRA adapter finetune\lora_V4`. Không có dòng đó thì đang chạy
 base và mọi so sánh sau đó là so base với base.
 
-Máy sập ở bước này thì hạ tiếp `--context-size 6144` (giải phóng 576 MiB) rồi thử lại. Đừng
-hạ `--vram-fraction` để "cho chắc" — nó là trần, hạ xuống làm chật thêm.
+Còn OOM thì hạ `--prompt-token-budget` xuống **1000** (đo được 3.05 GiB ở 1k token), rồi
+800. Đừng chạm `--context-size`: cache ở đây là động nên nó không phải thứ đang chiếm chỗ.
+
+Đừng nâng `--vram-fraction` lên để "cho qua". Nâng lên là mở lại đường tràn sang shared
+memory: nó sẽ chạy, 160 s/mẫu, và trên card 4 GB thì tràn VRAM **làm sập máy** chứ không
+báo OOM. Thà OOM trong 2 giây.
 
 ### Bước 1 và 2 — hai lượt 20 mẫu, đổi đúng một biến
 
@@ -97,10 +113,10 @@ Get-Content results\local_v6\ids50.txt | Select-Object -First 20 > results\local
 
 ```powershell
 # Bước 1 — KHÔNG adapter
-env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_base\base.jsonl
+env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --llm-precision 4bit --context-size 8192 --prompt-token-budget 1400 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_base\base.jsonl
 
 # Bước 2 — CÓ adapter, mọi thứ khác y nguyên
-env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_lora\lora.jsonl
+env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --prompt-token-budget 1400 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_lora\lora.jsonl
 ```
 
 20 mẫu × ~160 s ≈ 55 phút mỗi lượt. Dùng `--resume` nếu phải dừng giữa đường.
