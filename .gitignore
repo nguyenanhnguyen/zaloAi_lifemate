@@ -10,3 +10,7 @@ results/**
 !results/**/
 !results/**/*.md
 *.log
+# Adapter: trong so thi nang va tai lai duoc tu Kaggle, con huong dan thi khong.
+finetune/**
+!finetune/**/
+!finetune/*.md
