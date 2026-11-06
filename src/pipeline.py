@@ -179,6 +179,7 @@ class Pipeline:
         observed: set[str] = set()
         _collect_scalars(content, observed)
         asks_pushed_back = 0
+        reads_done = 0
         for step in range(self.max_steps):
             self.steps = step + 1
             if time.perf_counter() >= deadline:
@@ -256,17 +257,31 @@ class Pipeline:
                 result = env.call(name, args)
                 if kinds[name] == "write":
                     state_version += 1
+                elif kinds[name] == "read" and not result.get("error"):
+                    # CHỈ kind "read". Nhánh `elif` cũ bắt mọi thứ không phải "write", và
+                    # `sys.ask_missing_info` có kind 'meta' -- nên chính lệnh hỏi được đếm là
+                    # một lần đọc, `reads_done` thành 1, và luật đẩy lại không bao giờ bắn.
+                    # Lượt local_v9 đầu tiên vì vậy đổi 0/50 mẫu: trông như "bản sửa vô dụng"
+                    # trong khi nó chưa hề chạy.
+                    reads_done += 1
                 executed[signature] = (state_version, result)
                 _collect_scalars(result, observed)
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(result, ensure_ascii=False)})
             if not error and name == "sys.ask_missing_info":
-                if asks_pushed_back < self.ask_retries:
+                # Chỉ đẩy lại khi model hỏi mà CHƯA gọi lệnh đọc nào -- "hỏi trước khi nhìn".
+                # Đẩy lại tất cả thì giá thời gian quá đắt: đo được ở local_v8, đẩy cả 23 mẫu
+                # làm 23/50 mẫu chạm time_limit dưới trần 30 giây, mỗi mẫu đó 0 điểm. Luật này
+                # nhắm đúng: trên base nó bắn vào 7 mẫu và CẢ 7 gold đều cần ghi, không mẫu
+                # nào bị bắn oan. Trên lora_V4 là 24 mẫu -- adapter dạy model hỏi ngay mà
+                # không nhìn, và đó là lời giải thích đầy đủ cho local_v7.
+                if reads_done == 0 and asks_pushed_back < self.ask_retries:
                     asks_pushed_back += 1
                     messages.append({"role": "user", "content":
-                        "Thông tin bạn hỏi phải tự suy ra: dùng công cụ ĐỌC để tìm đối tượng, "
-                        "ID hay trạng thái cần thiết, hoặc lấy từ lịch sử đã hoàn thành. "
-                        "Chỉ hỏi lại khi đã thử công cụ đọc mà vẫn không có. Hãy hành động."})
+                        "Bạn chưa gọi công cụ đọc nào. Những tham số bạn vừa hỏi thường nằm "
+                        "trong kết quả của công cụ đọc cùng ứng dụng -- gọi nó trước (có thể "
+                        "gọi không tham số để lấy cả danh sách), lấy ID hay trạng thái thật "
+                        "từ kết quả, rồi hành động. Chỉ hỏi lại nếu đọc rồi mà vẫn không có."})
                     logger.info("%s ask_missing_info bị đẩy lại (%d/%d)", item["id"],
                                 asks_pushed_back, self.ask_retries)
                     continue

@@ -30,6 +30,8 @@ Hai dãy số độc lập nhau. Số chỉ tăng; một cấu hình đã đổi
 
 | [local_v8](local_v8/) | như v7, **không** adapter, `--ask-retries 1` | `train` 50 mẫu | 2.50 | **Tìm ra chỗ rò lớn nhất: `sys.ask_missing_info` là cửa một chiều, và base hỏi lại SAI ở 91% mẫu (21/50).** Mở cửa ra thì thoát 3 / rơi 0 — nhưng dưới trần 30 giây có **23/50 mẫu chạm `time_limit`**, nên chưa dùng được. Để `--ask-retries 0` cho bài nộp, đo lại trên A30 |
 
+| [local_v9](local_v9/) | như v8, đẩy lại **chỉ** lần hỏi khi chưa đọc gì | `train` 50 mẫu | 2.57 / 4.00 | **`--ask-retries 1` nhắm đúng: miễn phí (giây/mẫu 15.8 → 16.4) và dịch một chiều (lora thoát `KHÔNG ghi` 5, rơi 0).** Chưa ăn điểm vì cả 5 vào `ghi sai` — ngân sách 2000 token nên model hành động bằng tool sai. **Bật khi chạy Kaggle.** Và: adapter dạy model hỏi khi chưa đọc ở 24/31 mẫu (base 7/23) |
+
 > Hai điều cần biết trước khi đọc bảng này. **`local_v1` = 22.52 là đường đi khác** (llama.cpp
 > CPU + Qwen3.5-4B Q8 + reasoning), không phải pipeline HF hiện tại — pipeline hiện tại xuất
 > phát từ `kaggle_v1` = **13.41**. Và điểm của `local_v5`–`local_v7` đo trên 50 mẫu `train`

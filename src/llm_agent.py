@@ -284,6 +284,12 @@ class LLMAgent:
         if prefix:
             inputs["input_ids"] = inputs["input_ids"][:, prefix:]
         uncached_length = inputs["input_ids"].shape[1]
+        # Tool được render TRƯỚC messages trong chat template, nên đổi một tool là prefix vỡ
+        # ngay từ token đầu và cả prompt phải prefill lại. Log dòng này để thấy lượt nào thật
+        # sự dùng lại được cache: `reused` nhỏ mà `prefill` lớn ở lượt 2+ nghĩa là đang trả
+        # giá prefill đầy đủ mỗi lượt.
+        logger.info("prompt %d tok (%d tools): reused %d, prefill %d",
+                    len(ids), len(tools or []), prefix, uncached_length)
         # This PyTorch build ships no flash-attention kernel, and the math backend materialises the
         # full attention matrix (measured 7.54 GiB peak for a 3.9k prompt). Prefer mem-efficient.
         with self.torch.inference_mode(), sdpa_kernel(_SDPA_BACKENDS):
