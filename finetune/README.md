@@ -67,16 +67,16 @@ mọi lệnh dưới đây. Đừng bỏ.
 
 ### Bước 0 — hai mẫu, để biết dây nối đúng và máy không sập
 
+> **Mọi lệnh dưới đây là MỘT dòng.** Đừng chèn `^` để tách dòng: đó là nối dòng của
+> `cmd.exe`, PowerShell không hiểu và báo `Missing expression after unary operator '--'`.
+> PowerShell nối dòng bằng backtick, nhưng một dòng liền thì không sai được.
+
+
 Chạy cái này trước, luôn. Hai lượt Kaggle đã chết vì bỏ qua bước tương đương: nạp được model
 xong không chứng minh được gì.
 
 ```powershell
-env\Scripts\python.exe scripts\infer.py --split train --max-samples 2 ^
-  --transcript-cache train_all.transcripts.jsonl ^
-  --adapter finetune\lora_V4 ^
-  --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate ^
-  --vram-fraction 0.85 ^
-  --output results\local_v7_smoke\out.jsonl
+env\Scripts\python.exe scripts\infer.py --split train --max-samples 2 --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_smoke\out.jsonl
 ```
 
 Trong log phải có `Loading LoRA adapter finetune\lora_V4`. Không có dòng đó thì đang chạy
@@ -97,21 +97,10 @@ Get-Content results\local_v6\ids50.txt | Select-Object -First 20 > results\local
 
 ```powershell
 # Bước 1 — KHÔNG adapter
-env\Scripts\python.exe scripts\infer.py --split train ^
-  --sample-ids (cat results\local_v7_base\ids20.txt) ^
-  --transcript-cache train_all.transcripts.jsonl ^
-  --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate ^
-  --vram-fraction 0.85 ^
-  --output results\local_v7_base\base.jsonl
+env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_base\base.jsonl
 
 # Bước 2 — CÓ adapter, mọi thứ khác y nguyên
-env\Scripts\python.exe scripts\infer.py --split train ^
-  --sample-ids (cat results\local_v7_base\ids20.txt) ^
-  --transcript-cache train_all.transcripts.jsonl ^
-  --adapter finetune\lora_V4 ^
-  --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate ^
-  --vram-fraction 0.85 ^
-  --output results\local_v7_lora\lora.jsonl
+env\Scripts\python.exe scripts\infer.py --split train --sample-ids (cat results\local_v7_base\ids20.txt) --transcript-cache train_all.transcripts.jsonl --adapter finetune\lora_V4 --llm-precision 4bit --context-size 8192 --max-seconds 600 --xref-gate --vram-fraction 0.85 --output results\local_v7_lora\lora.jsonl
 ```
 
 20 mẫu × ~160 s ≈ 55 phút mỗi lượt. Dùng `--resume` nếu phải dừng giữa đường.
@@ -120,8 +109,7 @@ env\Scripts\python.exe scripts\infer.py --split train ^
 
 ```powershell
 env\Scripts\python.exe scripts\score.py results\local_v7_lora\lora.jsonl --split train
-env\Scripts\python.exe scripts\diag\action_buckets.py results\local_v7_lora\lora.jsonl ^
-  --baseline results\local_v7_base\base.jsonl
+env\Scripts\python.exe scripts\diag\action_buckets.py results\local_v7_lora\lora.jsonl --baseline results\local_v7_base\base.jsonl
 ```
 
 Dòng phán xét **không** phải điểm F1 mà là:
