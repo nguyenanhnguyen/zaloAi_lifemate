@@ -14,3 +14,6 @@ results/**
 finetune/**
 !finetune/**/
 !finetune/*.md
+
+# Docker: chi giu tai lieu va file build, khong giu log/image sinh ra.
+docker/out/

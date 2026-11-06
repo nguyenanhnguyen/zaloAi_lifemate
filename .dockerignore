@@ -1,0 +1,14 @@
+# File DUY NHẤT ngoài docker/ mà việc build cần: Docker chỉ đọc .dockerignore ở gốc build
+# context, không đọc được nó từ thư mục con. Nếu không có nó, `docker build` sẽ nhét cả
+# env/ (~8 GB), data/ (~10 GB) và models/ không dùng (~20 GB) vào context.
+*
+!src/**
+!scripts/**
+!docker/entrypoint.py
+!finetune/lora_V4/**
+!models/hf-cache/hub/models--Qwen--Qwen3-4B-Instruct-2507/**
+!models/hf-cache/hub/models--vinai--PhoWhisper-large/**
+# Không bao giờ vào image: dữ liệu thi (BTC mount lúc chạy), môi trường ảo của Windows,
+# kết quả chạy, và <split>_environment/ mà luật cấm đọc.
+**/__pycache__/**
+**/*.pyc
