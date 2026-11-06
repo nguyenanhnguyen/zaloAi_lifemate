@@ -108,12 +108,20 @@ def _native_tools(tools: list[dict]) -> list[dict]:
 class Pipeline:
     def __init__(self, asr_model: WhisperASR, llm_agent: LLMAgent,
                  *, max_steps: int = MAX_STEPS, max_seconds: float = 600,
-                 xref_gate: bool = False) -> None:
+                 xref_gate: bool = False, ask_retries: int = 0) -> None:
         self.asr_model = asr_model
         self.llm_agent = llm_agent
         self.max_steps = max_steps
         self.max_seconds = max_seconds
         self.xref_gate = xref_gate
+        # sys.ask_missing_info là một CỬA MỘT CHIỀU: gọi thành công một lần là mẫu dừng hẳn.
+        # Đo được trên 50 mẫu của local_v7: trong 23 mẫu base dừng vì nó, **21 mẫu (91%) gold
+        # THẬT SỰ CẦN ghi** -- tức hỏi lại là sai, và một lần hỏi non làm mất cả mẫu. Với
+        # ask_retries > 0, lần hỏi đầu bị đẩy lại kèm lời nhắc đi tìm thông tin bằng công cụ,
+        # và mẫu còn cơ hội hành động. Giá: lệnh ask thừa làm giảm precision (P = M/(M+U)).
+        # Nhưng state_hash là all-or-nothing -- sai hash thì 0 điểm bất kể precision -- nên
+        # đổi một chút precision để có cơ hội ghi đúng là đổi có lợi.
+        self.ask_retries = ask_retries
         self.xref_rejections = 0
         self.last_asr_seconds = 0.0
         self.last_llm_seconds = 0.0
@@ -170,6 +178,7 @@ class Pipeline:
         # validate, trong khi ID thật là `c_04` và `bill_01`.
         observed: set[str] = set()
         _collect_scalars(content, observed)
+        asks_pushed_back = 0
         for step in range(self.max_steps):
             self.steps = step + 1
             if time.perf_counter() >= deadline:
@@ -252,6 +261,15 @@ class Pipeline:
             messages.append({"role": "tool", "tool_call_id": call["id"],
                              "content": json.dumps(result, ensure_ascii=False)})
             if not error and name == "sys.ask_missing_info":
+                if asks_pushed_back < self.ask_retries:
+                    asks_pushed_back += 1
+                    messages.append({"role": "user", "content":
+                        "Thông tin bạn hỏi phải tự suy ra: dùng công cụ ĐỌC để tìm đối tượng, "
+                        "ID hay trạng thái cần thiết, hoặc lấy từ lịch sử đã hoàn thành. "
+                        "Chỉ hỏi lại khi đã thử công cụ đọc mà vẫn không có. Hãy hành động."})
+                    logger.info("%s ask_missing_info bị đẩy lại (%d/%d)", item["id"],
+                                asks_pushed_back, self.ask_retries)
+                    continue
                 self.stop_reason = "asked_missing"
                 break
         logger.info("%s stopped: %s (%d LLM turns)", item["id"], self.stop_reason, self.steps)

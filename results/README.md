@@ -28,6 +28,8 @@ Hai dãy số độc lập nhau. Số chỉ tăng; một cấu hình đã đổi
 | [finetune_v1](finetune_v1/) | — (chỉ dựng dữ liệu) | — | — | Dataset SFT từ gold trajectory: 1233 train / 243 eval, chỉ **1.5%** token được tính loss |
 | [local_v7](local_v7/) | như v6 + **adapter `lora_V4`** | `train` 50 mẫu | 2.57 → **4.00** | **Adapter đầu tiên của dự án được đo.** Bucket `KHÔNG ghi` **không** dịch (thoát 6 / rơi 7 = nhiễu), nhưng **quá 30 giây: 14/50 → 0/50**. Ngân sách prompt bị VRAM ép xuống 2000 token nên là phép đo **dưới mức** |
 
+| [local_v8](local_v8/) | như v7, **không** adapter, `--ask-retries 1` | `train` 50 mẫu | 2.50 | **Tìm ra chỗ rò lớn nhất: `sys.ask_missing_info` là cửa một chiều, và base hỏi lại SAI ở 91% mẫu (21/50).** Mở cửa ra thì thoát 3 / rơi 0 — nhưng dưới trần 30 giây có **23/50 mẫu chạm `time_limit`**, nên chưa dùng được. Để `--ask-retries 0` cho bài nộp, đo lại trên A30 |
+
 > Hai điều cần biết trước khi đọc bảng này. **`local_v1` = 22.52 là đường đi khác** (llama.cpp
 > CPU + Qwen3.5-4B Q8 + reasoning), không phải pipeline HF hiện tại — pipeline hiện tại xuất
 > phát từ `kaggle_v1` = **13.41**. Và điểm của `local_v5`–`local_v7` đo trên 50 mẫu `train`

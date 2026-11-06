@@ -173,6 +173,11 @@ def main() -> None:
     parser.add_argument("--max-seconds", type=float, default=30, help="Sample budget; 30 matches the competition's A30 rule")
     parser.add_argument("--vram-fraction", type=float, default=0.90,
                         help="Chan cap phat o ti le nay cua VRAM that, de torch bao OOM thay vi tran sang UVM va LAM SAP MAY. Hai lan laptop tu restart deu tu duong UVM (nvlddmkm: GPU recovery action -> OS Reboot). Dat 0 de tat, vd tren Kaggle.")
+    parser.add_argument("--ask-retries", type=int, default=0,
+                        help="Lan hoi lai bi day lai truoc khi dung mau. Mac dinh 0 = hanh vi "
+                             "cu (dung ngay). Do duoc o local_v7: trong 23 mau base dung vi "
+                             "sys.ask_missing_info, 21 mau (91%%) gold THAT SU CAN ghi -- nen "
+                             "mot lan hoi non lam mat ca mau.")
     parser.add_argument("--xref-gate", action="store_true",
                         help="Từ chối lệnh có tham số x-ref mang ID chưa từng xuất hiện trong "
                              "kết quả công cụ hay lịch sử (env.validate() không kiểm tra điều "
@@ -335,7 +340,7 @@ def main() -> None:
                    precision=precision, prompt_token_budget=args.prompt_token_budget,
                    adapter=args.adapter)
     pipeline = Pipeline(asr, llm, max_steps=args.max_steps, max_seconds=args.max_seconds,
-                        xref_gate=args.xref_gate)
+                        xref_gate=args.xref_gate, ask_retries=args.ask_retries)
     metrics_path = args.metrics_output or args.output.with_suffix(".metrics.jsonl")
     if metrics_path.resolve() == args.output.resolve():
         llm.close()
@@ -391,6 +396,7 @@ def main() -> None:
                           "context_size": args.context_size, "max_new_tokens": args.max_new_tokens,
                           "prompt_token_budget": args.prompt_token_budget,
                           "normalise_numbers": not args.raw_numbers, "adapter": args.adapter,
+                          "ask_retries": args.ask_retries,
                           "xref_gate": args.xref_gate}
                 metrics.write(json.dumps(record, ensure_ascii=False) + "\n")
                 metrics.flush()
