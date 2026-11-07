@@ -136,6 +136,32 @@ Nó kiểm: GPU có mặt; dataset nào đã gắn; thư mục split tìm đư�
 file và `base_model_name_or_path` **khớp** `LLM_ID`; `sft.eval.jsonl` có khi dùng adapter;
 transcript cache phủ đủ audio; có mạng hay model đã gắn sẵn; và cấu hình không tự mâu thuẫn.
 
+### Cái bẫy torchao — đã sửa, nhưng phải biết nó tồn tại
+
+Lượt Kaggle đầu chết ở **giây 579**, sau khi đã tải xong 13.4 GiB model:
+
+```
+ImportError: Found an incompatible version of torchao.
+Found version 0.10.0, but only versions above 0.16.0 are supported
+  peft/tuners/lora/torchao.py:160 -> peft/import_utils.py:147
+```
+
+`peft/import_utils.is_torchao_available()` **raise** khi thấy torchao cũ thay vì trả về
+`False`, và hàm đó nằm trong chuỗi dispatcher mà PEFT đi qua để nạp **mọi** lớp LoRA. Image
+Kaggle có torchao 0.10.0; peft 0.20.0 đòi ≥ 0.16.0. Lỗi không liên quan gì tới adapter.
+
+Cell cài đặt giờ **gỡ** torchao ra khi dùng adapter — gỡ chứ không nâng cấp, vì nâng torchao
+có thể kéo theo một bản torch khác, mà torch là thứ duy nhất ở đây không được đổi. Ta không
+dùng torchao ở đâu: model chạy fp16, không lượng tử bằng torchao.
+
+Gỡ khỏi đĩa một mình là **chưa đủ**: `importlib.util.find_spec` đọc `sys.modules` trước và
+trả về `module.__spec__`, nên nếu torchao đã được import ở đâu đó thì hàm vẫn thấy nó và vẫn
+raise. Cell cài đặt vì vậy xoá cả `sys.modules` và gọi `invalidate_caches()`, rồi **gọi đúng
+hàm đã làm chết lượt trước** để kiểm — chứ không chỉ kiểm số phiên bản.
+
+Màng chắn cũng kiểm việc này ở mục `[9]`, nhưng **chỉ cảnh báo**, không chặn: cell cài đặt tự
+sửa được, nên chặn ở đó là báo oan lần thứ hai.
+
 ### Ba lỗi của chính màng chắn, đã sửa ở lần chạy thật đầu tiên
 
 Lần chạy đầu trên Kaggle, màng chắn **chặn sai** một adapter hoàn toàn đúng. Ghi lại vì cả ba
