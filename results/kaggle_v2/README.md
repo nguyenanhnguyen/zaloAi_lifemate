@@ -1,392 +1,124 @@
-# kaggle_v2 — gửi cả catalogue tool, không route *(chưa có điểm)*
+# kaggle_v2 — phép A/B công bằng đầu tiên về adapter
 
-Notebook: [`notebook/lifemate_kaggle_v2.ipynb`](../../notebook/lifemate_kaggle_v2.ipynb),
-`RUN_NAME = 'kaggle_v2'`. Thư mục này trống cho tới khi có kết quả tải về.
+Hai lượt Kaggle chạy ngày 2026-11-07, khác nhau **đúng một cờ** `USE_ADAPTER`. Mọi thứ còn
+lại giữ nguyên: cùng 50 mẫu held-out từ `sft.eval.jsonl` (cùng `SEED`, cùng thứ tự ID), fp16
+trên Tesla T4, đủ **147 tool trong 46 app** (không route prompt), `context=12288`,
+`MAX_NEW_TOKENS=256`, `MAX_STEPS=8`, ASR chạy inline (`TRANSCRIPT_CACHE=None`).
 
-## Lịch sử các lần chạy trên Kaggle
+Vì sao điều này đáng kể: `local_v5`–`local_v10` đều lẫn thêm biến. Trên laptop 4 GB adapter
+chỉ **gắn kèm** được (gộp vào trọng số 4-bit sẽ lượng tử cả delta) và ngân sách prompt bị VRAM
+ép xuống 2000 token, nên mọi so sánh ở đó đều lệch *hai* biến. Lượt này adapter được **gộp**
+vào fp16 — đúng điều kiện đã huấn luyện — và tool không bị cắt.
 
-| Ver | Thời gian | Kết cục | Nguyên nhân |
+```
+554.1s  LoRA adapter merged: /kaggle/input/datasets/anhnguyen7508/lifemate-lora
+554.2s  Parameter audit: {'asr': 1543304960, 'llm': 4022468096}; dtype=torch.float16
+```
+
+## Kết quả
+
+| | A — adapter `lora_V4` | B — model gốc | |
 |---|---|---|---|
-| 11 | 45 s | `FileNotFoundError` checkpoint | `allow_patterns` thiếu `*.bin`; PhoWhisper-large không có safetensors |
-| 12 | 225 s | `NameError: TRANSCRIPTS` | `TRANSCRIPTS` nạp sau khi dựng `config` |
-| 13 | 238 s | traceback bị cắt | — (không chẩn đoán được từ log) |
-| 14 | 227 s | `OutOfMemoryError` 5.00 GiB | `enable_gqa=True` của transformers là đường math kernel, O(N²) |
-| 15 | 1499 s | 4/5 mẫu `LLM token limit reached` | bản **Thinking** tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>` |
-| 16 | 1428 s | **chạy thông, 13.80** | thời gian đã ổn; chỗ mất điểm là độ chính xác tham số (mục dưới) |
-| 17 | — | **14.40** (+0,60) | pushback + dòng `SYSTEM_PROMPT` mới; 1 mẫu lên điểm, 0 mẫu xuống |
+| **điểm (`local_train_score`)** | **5.50** | **0.4444** | A = **12.4×** B |
+| giây/mẫu trung bình | **23.84** | 33.31 | B chậm **1.40×** |
+| p95 | **38.61** | 57.75 | |
+| max | **53.32** | 60.08 | |
+| **quá 30 giây** | **9/50 (18%)** | 26/50 (52%) | |
+| thất bại | **0** | 3 | |
+| `done` | 46 | 46 | |
+| `asked_missing` | 4 | 1 | |
+| `step_limit` | **0** | 3 | |
+| tổng thời gian lượt | 1766.5s | 2372.1s | |
 
-Từ V15 trở đi hạ tầng đã thông: model nạp xong, prefill ~9160 token chạy qua, 1 mẫu hoàn tất
-đúng (`train_0063`, 1 call, `done`). Những gì còn lại là chất lượng, không phải lỗi hệ thống.
+Adapter thắng ở **mọi** cột. Không có đánh đổi nào phải cân.
 
-### V16: điểm 13.80 trên 50 mẫu train
+### Cơ chế: ít token mỗi bước, không ít bước
 
-`python scripts/diag/read_run.py <preflight>` trên đủ 50 bản ghi. **Thời gian đã giải quyết:**
+Trên 39 mẫu đầu đo được từ log, số call trung bình gần như **bằng nhau** (A 3.13 vs B 3.21)
+trong khi A nhanh hơn 1.40×. Adapter không đi đường ngắn hơn — nó **sinh ít token hơn mỗi
+lượt**, quyết đoán hơn, bớt lan man. Khớp với thứ `local_v7` đã thấy (quá 30 giây 14/50 → 0/50)
+nhưng lần này đo sạch biến.
 
-| | V1 (13.41) | V16 |
-|---|---|---|
-| trung vị/mẫu trên T4 | 30,6 s | **25,0 s** (p95 60,1 s, max 66,0 s) |
-| đỉnh `cuda:0` | 12869 MiB | **9520 MiB** (dư 5,3 GiB) |
-| quy đổi A30 (÷2,9) | ~10,5 s | **8,6 s** (p95 20,7 s) / giới hạn 30 s |
+Base còn ba dấu hiệu lan man mà adapter không có: `train_0081` 8 call `step_limit`,
+`train_0229` 6 call `step_limit`, và `train_0945` nộp **0 call**.
 
-Phép tính bộ nhớ "~13,2 GiB" của tôi ở trên vẫn **bi quan quá**: prefill thật ~5900 token trung vị
-(không phải 9160), nên đỉnh là 9520 MiB. Thông lượng **6,5 token/s**, và nó không đổi theo context →
-nghẽn là **overhead mỗi token**, không phải băng thông, đúng như nghi vấn ở V15. Giờ không còn quan
-trọng, vì đầu ra chỉ 31 token trung vị.
+### Vì sao chuyện 30 giây không phải chuyện phụ
 
-⚠️ **Hai con số tôi viết trước đó từ 7 mẫu đầu đều sai, và sai theo hướng lạc quan**: "trung vị
-17–19 s" (thật: 25,0 s) và "điểm 0 trên cả 7 mẫu" (thật: 13.80 trên 50 mẫu, 16/50 khớp hash).
-7 mẫu đầu là một cụm xấu, không đại diện. Bài học ở `EXPERIMENTS.md`.
+Luật: mỗi mẫu phải xong trong **30 giây**, quá hạn **ăn 0 điểm**. Base vượt hạn ở **52%** mẫu,
+adapter ở 18%.
 
-### Chỗ mất điểm thật: 34/50 mẫu lệch `state_hash`
+Lượt này không ai bị chặn vì notebook đặt deadline T4 = 600s, và chính nó in cảnh báo:
+`T4/P100 diagnostic run: 600s/sample. This does NOT establish the 30s A30 rule.` T4 chậm hơn
+A30 24 GB của vòng Docker đáng kể, nên **không chuyển trực tiếp** con số 18% sang vòng đó
+được. Nhưng nó nói biên thời gian mỏng, và đây là thứ phải đo lại khi dựng image.
 
-Phân loại trực tiếp từ `metrics.jsonl` + `events.jsonl` (`tool_end` đối chiếu `kind` trong catalogue):
+Lưu ý khi so với `local_v10`: ở đây ASR **nằm trong** số giây (`TRANSCRIPT_CACHE=None`), còn
+13.3 s/mẫu của `local_v10` là *chỉ LLM*. Hai con số không so được.
 
-| nhóm | số mẫu | nghĩa |
-|---|---|---|
-| **có write nhưng lệch hash** | **25** | gọi tool thay đổi dữ liệu, nhưng **sai thứ gì đó** |
-| không write nào | 9 | 8 mẫu đã đọc dữ liệu rồi dừng; 1 mẫu không làm gì |
-| khớp hash, khớp 0 call | 5 | hash đúng mà F1 = 0 |
-| `failed` | 3 | 2 `step_limit`, 1 `invalid_output` |
+## `done` KHÔNG có nghĩa là đúng
 
-Trong 25 mẫu "có write nhưng sai", **16 mẫu khớp 0 call** dù gọi đúng họ tool. Ba ví dụ dựng lại từ
-`train.jsonl` (khoá `label.tool_calls`) cho ba lớp lỗi khác nhau:
+Đây là thứ quan trọng nhất học được, và nó không nằm ở cột nào trong bảng trên.
 
-| mẫu | WER | gold | ta nộp | lớp lỗi |
-|---|---|---|---|---|
-| `train_0063` | 0,12 | `sms.send{contact_id:"c_10", content:"nhớ mang tài liệu"}` | `sms.send{contact_id:"c_01", content:"Giở mang tài liệu"}` | **sai ID + ASR**: tra `contacts.search` ra rỗng rồi vẫn tự điền `c_01` |
-| `train_0066` | 0,14 | `reminders.create` | `alarm.list` + `alarm.create` | **sai họ tool**: "nhắc mình" → reminders, không phải alarm |
-| `train_0354` | **0,00** | `calendar.list_events` → `ride_hailing.book{dropoff:"Sân bóng Chuyên Việt, 25 Núi Thành…", schedule_time:"…T14:30"}` | `ride_hailing.get_quotes` → `book{dropoff:"chỗ hẹn đá bóng", schedule_time:"…T15:00"}` | **không tra cứu referent**: bỏ `calendar.list_events`, nhét nguyên lời người dùng vào `dropoff`, nên giờ cũng lệch 30 phút |
+Cả hai lượt đều `done: 46/50` — mô hình **hoàn thành** 92% mẫu — rồi ăn 5.5 và 0.44 điểm.
 
-`train_0354` có **WER 0,00** — bản ghi âm hoàn hảo — mà vẫn 0 điểm. Nên đây không phải vấn đề ASR,
-cũng không phải "model không chịu hành động". Nó **hành động, nhưng điền tham số bằng lời người dùng
-thay vì bằng dữ liệu tra được**, và chọn sai họ tool khi hai họ nghe giống nhau.
+Bóc số ra: điểm = trung bình F1 × 100. A được 5.50 nghĩa là tổng F1 trên 50 mẫu chỉ **2.75**.
+B được 0.4444 = **2/9** chính xác, tức gần như đúng **một** mẫu có điểm lẻ trong cả 50
+(P=1/4, R=1/5 cho ra đúng 2/9).
 
-Ba lớp lỗi này là **đúng những gì SFT dạy**: mỗi quỹ đạo gold trong `sft.train.jsonl` đều có dạng
-`read → lấy ID từ kết quả → write → DONE` (đã kiểm: mẫu đầu gọi `calendar.list_events` rồi dùng
-`evt_01`, gọi `contacts.search` rồi dùng `c_08`). Fine-tune là đòn đúng — nhưng vì lý do này,
-không phải vì lý do tôi viết ở bản trước.
+Nên `done` nghĩa là mô hình **tự tin kết thúc**, không phải làm đúng. Nó gọi sai tool, hoặc
+sai tham số, hoặc để `state_hash` lệch. Luật chấm all-or-nothing trên `state_hash`: lệch một
+tham số là mất trắng cả mẫu. Đừng bao giờ đọc `stop_reasons` như một thước đo chất lượng.
 
-Kết luận cũ **"chỗ nghẽn là hành vi, không phải nhận thức"** vẫn đúng ở mức thô (34/50 lệch hash ở
-context 12288, không route → không phải do prompt bị cắt), nhưng mô tả sai bản chất: nghẽn là **độ
-chính xác của tham số và lựa chọn tool**, không phải sự từ chối hành động.
+## Hai điều KHÔNG kết luận được từ đây
 
-### Cơ chế chính xác, và bản vá
+**5.50 trùng khít `local_v4` = 5.50.** Rất có thể là trùng hợp — điểm là tỉ số của các số
+nguyên nhỏ nên hay chạm nhau. Nhưng nếu một lượt khác cấu hình cũng ra đúng 5.50 thì phải
+nghi hàm chấm trước khi nghi model.
+
+**5.50 không so được với 13.41 (`kaggle_v1`) hay 11.18 (`local_v10`).** Đó là 50 mẫu held-out
+`train`; hai số kia là 634 mẫu `public_test`. Tập khác nhau. Mốc duy nhất đúng nghĩa trong
+tài liệu này là **B = 0.44** — và adapter hơn nó 12.4 lần.
+
+## Ba lượt chết trước khi tới được đây
+
+Đáng ghi vì cả ba đều là lỗi **môi trường Python**, không lỗi dữ liệu, và hai trong ba do
+chính màng chắn gây ra.
+
+1. **Version 18, giây 586** — `ImportError: Found an incompatible version of torchao. Found
+   version 0.10.0`. `peft/import_utils.is_torchao_available()` **raise** khi thấy torchao cũ
+   thay vì trả `False`, và nó nằm trong chuỗi dispatcher LoRA. Chết **sau** khi đã tải 13.4
+   GiB model. Sửa: gỡ torchao (không nâng — nâng có thể kéo theo torch khác), xoá
+   `sys.modules`, `invalidate_caches()`, rồi gọi đúng hàm đó để kiểm.
+2. **Version 19, giây 514** — `RuntimeError: Restart kernel before installing a different
+   Transformers version.` Mục `[9]` của màng chắn `import peft`, peft kéo theo `transformers`
+   5.16.1 vào `sys.modules`, nên cell cài đặt (đúng) từ chối làm việc. Màng chắn sập vào đúng
+   cái bẫy nó được viết ra để tránh, bằng chính hành động kiểm tra. Sửa: gọi peft trong
+   **subprocess**, thêm mục `[10]` chặn sớm nếu kernel đã nhiễm.
+3. **Một lượt trước đó** bị màng chắn **chặn oan**: phép so base của adapter lấy
+   `base.split('/')[-1]` — tức lấy **mã revision** rồi đem so với **tên model**.
+
+Bài học thành tính chất: **màng chắn phải read-only với `sys.modules`, không chỉ read-only
+với đĩa.** Nó chạy trước mọi thứ, nên mỗi `import` nó làm là một ràng buộc nó áp lên phần còn
+lại của notebook.
+
+Và: **4 dataset tách rời không gây lỗi nào.** Log cả ba lượt đều xác nhận mount đủ —
+`lifemate-lora` 0.25 GiB, `lifemate-sft` 0.03 GiB, `lifemate-transcripts`,
+`zaic2026-track-lifemate` 1.05 GiB, `train.jsonl` 1545 mẫu, `147 tool trong 46 app`,
+`audio: đủ 1545/1545 file`.
+
+## Lượt C — cấu hình chốt để ra bài nộp
+
+Đổi so với lượt A:
 
 ```python
-# parse_decision, dòng 350
-if allow_plain_done and not re.match(r'\s*(?:<tool_call>|[\[{]|```)', text):
-    return None          # -> infer_sample: "if call is None: return 'done'"
+SPLIT      = 'public_test'
+RUN_FULL   = True
+USE_ADAPTER = True          # giữ - đã thắng 12.4x
+TRANSCRIPT_CACHE = Path('/kaggle/input/datasets/anhnguyen7508/'
+                        'lifemate-transcripts/public_test.transcripts.jsonl')
 ```
 
-`allow_plain_done = bool(env.get_tool_calls())` — bật ngay khi đã có **một call bất kỳ, kể cả read**.
-Nên một câu văn xuôi sau một lần `smart_home.get_status` đóng mẫu lại là `done` với 0 write →
-`state_hash` không đổi → 0 điểm.
+Ước lượng: 634 mẫu × 23.8 s = **4.2 giờ** nếu chạy ASR inline; có transcript cache
+(phủ 1933/1933 audio) thì ít hơn. Hạn session GPU là 9 giờ nên vừa.
 
-Vá, ba phần:
-
-1. **Đẩy lại đúng một lần** khi model trả văn xuôi mà `state_version == 0` (chưa có write nào thành
-   công): *"Mô tả bằng lời KHÔNG tính là đã làm. Nếu chỉ tra cứu thì trả lời DONE."*
-2. **Chỉ khi `state_version == 0`.** Thúc thêm sau khi đã có write dễ sinh write thừa, mà write thừa
-   làm sai `state_hash` vĩnh viễn — tệ hơn là không làm gì.
-3. **Chỉ khi `step < MAX_STEPS`.** Đẩy lại ở lượt cuối thì vòng lặp thành `step_limit` → `failed` →
-   biến một mẫu chỉ-tra-cứu đang được tính `done` thành 0 điểm.
-
-Cộng một dòng vào `SYSTEM_PROMPT`: *"Đọc dữ liệu xong là để hành động, không phải để tóm tắt lại."*
-
-Giá phải trả: ~4 s cho mỗi mẫu chỉ tra cứu (model trả lời `DONE` ở lượt thêm). Trong ngân sách 25 s
-hiện tại thì rẻ. Theo dõi bằng event mới `no_write_pushback` trong `events.jsonl`.
-
-**Tầm với của bản vá này đã đo được: 9/50 mẫu.** Chốt `state_version == 0` khiến nó chỉ bắn vào nhóm
-"không write nào", tức tối đa ~18% số mẫu — không phải 50% như tôi tưởng khi chỉ đọc 7 mẫu đầu. Giữ
-lại vì nó đúng và rẻ, nhưng **không phải đòn chính**. 25 mẫu "write sai" phải chờ fine-tune.
-
-### Bẫy đo lường: 42/50 mẫu preflight nằm trong tập train của SFT
-
-| | |
-|---|---|
-| `train.jsonl` | 1545 mẫu |
-| `sft.train.jsonl` | 1284 mẫu |
-| `sft.eval.jsonl` | 261 mẫu, giao với `sft.train` = **0** |
-| 50 mẫu preflight V16 | **42 trong `sft.train`**, 8 trong `sft.eval` |
-
-Split train/eval của SFT thì sạch, nhưng preflight lấy mẫu từ **cả** 1545 mẫu. Nếu chạy preflight với
-`ADAPTER_DIR` trên đúng 50 mẫu đó, điểm đo được là điểm trên dữ liệu model đã học thuộc — nó sẽ tăng,
-và con số đó không nói gì về `public_test`. Đây là bước 4 của RUNBOOK, và nó sẽ âm thầm cho số đẹp sai.
-
-Vá ở cell 0 + cell 8: `HOLDOUT_IDS = Path('/kaggle/input/lifemate-sft/sft.eval.jsonl')`; khi có file,
-preflight chỉ lấy mẫu từ đó, và `assert len(restricted) >= PREFLIGHT_SAMPLES` để cấu hình sai không
-rơi về "đo trên 7 mẫu". Không có file thì cảnh báo và quay về lấy từ cả split, để run cũ lặp lại được.
-
-**Hệ quả: cần một baseline no-adapter trên 50 mẫu held-out** trước khi so với adapter. Điểm 13.80 ở
-trên là baseline trên tập *bị nhiễm*, không dùng để so được.
-
-### V17: bản vá hành vi đáng +0,60 điểm, và prompt đã gần hết đường
-
-`python scripts/diag/diff_runs.py temp/v16 temp/v17` — cùng 50 mẫu, cùng `SEED = 42`:
-
-```
-điểm      : 13.80  ->  14.40   (+0.60)
-hash khớp : 16  ->  18  / 50
-ĐIỂM LÊN  : 1 mẫu    train_0435  0.50 -> 0.80  (khớp 1/2 -> 2/2)
-ĐIỂM XUỐNG: 0 mẫu
-LẬT HASH MÀ ĐIỂM KHÔNG ĐỔI: 2 mẫu   train_0469, train_1715  (khớp 0/2, 0/1)
-```
-
-Ba chốt giữ đúng lời hứa: **không mẫu nào tụt điểm**. Nhưng tầm với thì đúng như dự đoán từ phép tách
-9/25 — nhỏ. **Prompt engineering coi như hết đường ở đây**; 25 mẫu "write sai" phải chờ fine-tune.
-
-Hai điều học được, cả hai về cách đo:
-
-1. **Bản vá gộp hai thay đổi** (logic pushback *và* ba dòng `SYSTEM_PROMPT`), mà dòng prompt đổi
-   đường đi của cả 50 mẫu. Bằng chứng: `train_0469` và `train_1715` lật hash với số lượt **giảm**
-   (6→3, 5→3) — pushback thì phải *thêm* lượt, nên đó là tác dụng của prompt. Không quy được +0,60
-   cho cái nào. Lần sau: một thay đổi một run, hoặc chịu mất khả năng quy nguyên nhân.
-2. **`LẬT HASH MÀ ĐIỂM KHÔNG ĐỔI` là nhóm đáng nhìn riêng.** Hai mẫu đó giờ tới đúng trạng thái cuối
-   nhưng khớp 0/2 và 0/1 call → F1 = 0 → vẫn 0 điểm. Tức tới đúng đích bằng đường khác gold vẫn
-   không được tính. Điểm tổng không cho thấy nhóm này; `diff_runs.py` in riêng.
-
-⚠️ **`events.jsonl` của V17 tải về cụt: phủ 21/50 mẫu** (dừng giữa JSON ở `train_0508`). `metrics.jsonl`
-và `summary.json` đủ 50 nên điểm tin được, nhưng mọi mục suy từ events thì sai mà vẫn trông hợp lý —
-nó đọc ra 10 write-sai / 22 không-write, **lật ngược** tỉ lệ 25/9 của V16, chỉ vì 29 mẫu cuối không có
-`tool_end` nào. `read_run.py` giờ đối chiếu độ phủ với `metrics.jsonl` và bỏ hẳn các mục đó khi thiếu.
-Tải bằng **Output → Download All (zip)**, đừng tải từng file.
-
-### Hai vấn đề độc lập, nhỏ hơn, đã thấy
-
-**ASR kém hơn tưởng.** WER từng mẫu: 0,60 / 0,33 / 0,17 / 0,14 / 0,13 / 0,12. `train_0015` ra
-*"truyền thông mạng sang này cho chú phạm hồng nhã nữ giải trợ khanh toán hóm đỗ…"*. `train_0063`
-mất điểm **chỉ vì** ASR: nội dung tin nhắn thành "Giở mang tài liệu". Nhưng đây **không** phải nguyên
-nhân chính — `train_0075` thất bại không liên quan gì tới ASR.
-
-**`MAX_STEPS = 8` bị tiêu hoang.** `train_0080` dùng 6 lượt để gọi `bill_payment.list_bills` lần lượt
-cho 6 loại hoá đơn, rồi hết lượt. Chưa sửa: nâng `MAX_STEPS` làm xấu thời gian xấu nhất (8 lượt đã
-là 66 s), và bản vá trên có thể làm model hành động sớm hơn thay vì liệt kê. Đo lại trước khi đổi.
-
-### V15 cho hai con số chưa từng có
-
-**Thông lượng sinh token: ~9 token/s trên T4 ở context ~9k.** Mỗi mẫu lỗi đi qua đúng 2 lượt sinh
-1024 token (lần đầu cụt → nhắc lại → cụt → dừng), nên `(273 − ~5 s ASR) / 2048 ≈ 0,13 s/token`.
-Bốn mẫu lỗi cho 7,6 / 10,2 / 9,1 / 7,9 token/s — nhất quán.
-
-Hệ quả: **một lượt 1024 token mất ~114 s.** Mốc 30 s của vòng Docker loại hẳn cách này, và kết luận
-đó không cần phép quy chiếu T4→A30 nào. (Đáng để ghi: 9 token/s thấp hơn ~4 lần trần băng thông của
-chính T4, nên nút cổ chai có lẽ là overhead mỗi token chứ không phải băng thông — nếu đúng vậy thì
-A30 sẽ **không** cứu được nhiều như tỉ lệ 2,9× gợi ý. Chưa đo, chưa kết luận.)
-
-## Vì sao có V2
-
-`local_v4` chấm được **5.50** so với **22.52** của `local_v1`, và tìm ra nguyên nhân: cắt prompt để
-chạy nhanh khiến router chỉ giữ đủ app nhãn cần ở **24% mẫu**, 43% mẫu không có app nào đúng.
-`kaggle_v1` cũng route — `MAX_CONTEXT 4096` trừ output còn **3904 token**, trong khi prompt đã nén
-cần trung vị **4553**. V2 bỏ hẳn việc route.
-
-## Khác biệt so với V1
-
-Mục tiêu V2: **tối đa hoá điểm**, lấy đủ bài học của `local_v1` (22.52) chứ không chỉ sửa route.
-
-| | V1 = 13.41 | V2 | local_v1 = 22.52 |
-|---|---|---|---|
-| `MAX_CONTEXT` | 4096 | **12288** | 12288 |
-| Prompt tool | nén + route từng tool | **nguyên catalogue** | nguyên catalogue |
-| LLM | Qwen3-4B-Instruct-2507 | Qwen3-4B-Instruct-2507 | Qwen3.5-4B |
-| Thinking | tắt | tắt *(đã thử bật, xem dưới)* | bật (512 token) |
-| `MAX_NEW_TOKENS` | 192 | **256** | 1024 |
-| LLM trên GPU | 1 GPU | 1 GPU (cuda:0), ASR ở cuda:1 | CPU |
-| Tool call văn xuôi | nộp 0 call (42 mẫu) | khôi phục được | — |
-| Hỏi thiếu thông tin | **kết thúc mẫu ngay** | **tiếp tục làm việc** | — |
-| ID trong write arg | tin model | **chặn nếu không truy được** | — |
-| `context_limit` | giết cả run | chỉ hỏng 1 mẫu | — |
-| Đầu ra bị cắt 2 lần | làm lỗi cả mẫu | **`invalid_output`, giữ call đã làm** | — |
-| Cổng dừng run | 3 lỗi liên tiếp, mọi split | 3 trên `train`, **10** trên public_test | — |
-| Gate preflight | 1 mẫu `step_limit` là chặn | chặn khi lỗi >20% | — |
-| `local_train_score` | `null` | **có số thật, 50 mẫu** | — |
-| Chuẩn hoá số nói | không có | **có** (`NORMALISE_NUMBERS`) | — |
-| Nạp adapter fine-tune | không có đường | **`ADAPTER_DIR`, merge vào trọng số** | — |
-
-### ⚠️ Model: đã thử bản Thinking và đã bỏ
-
-V2 ban đầu đổi sang `Qwen3-4B-Thinking-2507` với lập luận: cấu hình duy nhất có điểm tốt
-(`local_v1`, 22.52) chạy reasoning, còn `kaggle_v1` không reasoning và chỉ được 13.41. Đây là thay
-đổi duy nhất của V2 **không có số đo nào đứng sau**. V15 đo, và nó thất bại:
-
-```
-4/5 mẫu: InvalidDecision: LLM token limit reached; truncated action rejected
-          -> nộp 0 call
-205-301 s/mẫu
-```
-
-Bản Thinking tiêu hết 1024 token reasoning mà chưa đóng `</tool_call>`. Nâng `MAX_NEW_TOKENS` lên
-1536 — đúng lời khuyên tôi từng viết ở cuối file này — làm **cả hai** vấn đề tệ hơn: cụt vẫn cụt mà
-mỗi lượt đắt thêm. Lời khuyên đó đã bị xoá.
-
-**Lý do quyết định không phải thời gian, mà là tính nhất quán với fine-tune.**
-[`scripts/train_sft.py`](../../scripts/train_sft.py) gắn cứng vào **Instruct-2507** vì quỹ đạo gold
-không có khối `<think>` nào. Adapter LoRA học trên trọng số Instruct không thể nạp lên trọng số
-Thinking. Fine-tune là hướng bắt buộc của dự án, nên inference phải chạy đúng checkpoint đó. Chạy
-Thinking lúc inference trong khi fine-tune Instruct là hai việc không ăn khớp nhau.
-
-**Đánh đổi phải nói thật:** bỏ reasoning là bỏ đúng cái thứ tương quan với điểm 22.52. Nhưng
-`local_v1` cho reasoning **512** token trên một model **hybrid** (Qwen3.5-4B) biết suy luận *ngắn*.
-`Qwen3-4B-Thinking-2507` là checkpoint chuyên suy luận: template luôn mở `<think>` nên
-`ENABLE_THINKING = False` **vô hiệu** với nó, và không có cách nào bảo nó suy luận ngắn. Hai thứ đó
-không thay thế được nhau, và cái có sẵn trong tầm tay là cái thứ hai.
-
-Nên V2 vẫn là **một thí nghiệm khác hẳn V1**, chỉ không khác ở chỗ model: context 12288 thay vì
-4096, nguyên catalogue thay vì route, cộng hai sửa đổi luồng làm việc dưới đây.
-
-Qwen3.5-4B (đúng bản đạt 22.52) dùng linear attention (DeltaNet): `ToolModel` khẳng định
-`model_type == 'qwen3'` và phần crop KV-cache chỉ kiểm chứng cho full attention, nên để dành.
-
-### Hai thay đổi luồng làm việc — đều đo trên 1545 mẫu nhãn `train`
-
-**A. Hỏi thiếu thông tin không còn kết thúc mẫu.**
-
-```
-sys.ask_missing_info trong nhãn gold:
-  là call DUY NHẤT      :  60 mẫu  (3.9%)
-  CÓ MẶT trong nhãn     : 217 mẫu  (14.0%)
-  trong đó 157 lần nằm SAU các call khác
-```
-
-V1 kết thúc mẫu ngay khi model hỏi — **109 mẫu (17.2%)** bị cắt mất toàn bộ call chưa kịp thực hiện.
-Gold nói hành vi đúng là: làm hết phần làm được, hỏi, rồi tiếp tục. V2 ghi nhận việc đã hỏi (tối đa
-2 lần) và chạy tiếp; `stop_reason` báo về vẫn là `asked_missing` nên cách tính lỗi không đổi.
-
-**B. ID trong đối số write phải truy được nguồn.**
-
-1277 đối số write của gold là ID phải tra cứu (`device_id`, `contact_id`, `bill_id`...). Kiểm trên
-toàn bộ nhãn: trong các mẫu mà gold **không có call read nào**, có 211 đối số dạng ID — và **211/211
-(100%) xuất hiện trong history/context của chính mẫu đó**. Nên một ID không khớp kết quả tool nào và
-cũng không có trong context là ID bịa; thực thi nó làm sai `state_hash` vĩnh viễn (local_v4: 86% mẫu
-lệch hash). V2 từ chối call đó và bảo model đi đọc ID thật. **0 false positive trên 1545 mẫu.**
-
-Phụ: `MAX_STEPS = 8` đã đủ — mẫu gold cần nhiều call nhất là **6**, không mẫu nào cần hơn 8.
-
-**C. Đầu ra bị cắt không còn làm lỗi cả mẫu** *(thêm sau V15)*. Trước đây lần `InvalidDecision` thứ
-hai `raise` → `stop_reason='error'` → 3 mẫu liên tiếp giết cả run; V15 chết đúng kiểu đó ở mẫu 5/50.
-Giờ trả về `'invalid_output'` và **giữ nguyên các call đã thực hiện**: submission chỉ tốt lên hoặc
-giữ nguyên, không bao giờ xấu đi, vì `submission_value(env, …)` đã luôn được ghi trong khối
-`finally` kể cả khi mẫu lỗi. `'invalid_output'` vẫn tính là `failed`, nên điểm preflight không bị
-làm đẹp và cổng `failure_rate ≤ 20%` vẫn chặn nếu model không chịu ra tool call.
-
-Lời nhắc khi đầu ra chưa hợp lệ cũng được viết lại cho gắt hơn: *"chỉ một khối
-`<tool_call>…</tool_call>` duy nhất, không giải thích, không suy luận."*
-
-**D. Cổng 3-lỗi-liên-tiếp chỉ còn gắt trên `train`.** Trên `train` ta đang **đo**, nên dừng sớm là
-đúng — V15 dừng ở mẫu 5 và tiết kiệm quota. Trên `public_test` không có nhãn để học thêm điều gì
-giữa run, mà chết ở mẫu 400/634 sau 6 giờ là mất trắng phiên đó; giới hạn ở đó là **10**. OOM vẫn
-giết run ở mọi split, vì nó nghĩa là kế hoạch bộ nhớ sai.
-
-Đo bằng tokenizer trên 100 mẫu `train`, đúng dạng prompt của notebook:
-
-```
-limit = 12288 - 256 = 12032
-prompt lượt 1, schema nguyên bản:  trung vị 5945   p95 7666   max 7783   -> vừa
-số mẫu phải route:                 0/100
-```
-
-## Nạp model fine-tune
-
-```python
-ADAPTER_DIR = Path('/kaggle/input/lifemate-lora/lora_v1')
-NORMALISE_NUMBERS = True      # BẮT BUỘC khi dùng ADAPTER_DIR
-```
-
-Adapter được **merge vào trọng số** → còn lại một model Qwen3 thường: số tham số không đổi (luật
-<6B nguyên vẹn) và phần crop KV-cache vẫn đúng. Notebook tự thêm `peft` vào lệnh cài khi
-`ADAPTER_DIR` khác `None`. `manifest.json` ghi cả đường dẫn adapter và `adapter_config.json` nên lần
-chạy vẫn tái lập được.
-
-⚠️ **`NORMALISE_NUMBERS` không phải tuỳ chọn khi fine-tune.** Dataset SFT dựng từ transcript **đã
-chuẩn hoá** ("xe 4 chỗ"), nên model mong đợi đầu vào đã chuẩn hoá. Tắt đi là lệch train/inference.
-Và vì vậy normalizer **bị đóng băng**: sửa `src/text_norm.py` thì phải build lại dataset SFT, nếu
-không adapter sẽ lệch với thứ nó nhận lúc chạy.
-
-Bản sao normalizer trong notebook là **nguyên văn** `src/text_norm.py` (Kaggle không import được từ
-repo). Đã kiểm: khớp tuyệt đối trên 236 transcript thô của `local_v4` (35.2% dòng bị đổi) và trên
-1933 transcript `public_test` đã chuẩn hoá (0 dòng đổi, tức idempotent). **Sửa thì sửa cả hai chỗ.**
-
-## Ghép với laptop: ASR chạy sẵn ở nhà
-
-V2 đọc được transcript do laptop sinh ra, nên không tốn GPU Kaggle cho ASR.
-
-```bash
-# laptop, chỉ ASR, không nạp LLM
-python scripts/infer.py --split public_test --asr-only \
-  --transcript-cache public_test.transcripts.jsonl
-```
-
-Upload file đó thành Kaggle Dataset rồi đặt trong cell cấu hình:
-
-```python
-TRANSCRIPT_CACHE = Path('/kaggle/input/lifemate-transcripts/public_test.transcripts.jsonl')
-```
-
-Mẫu nào thiếu trong cache **vẫn được ASR như thường**, nên cache chạy dở cũng dùng được.
-`metrics.jsonl` ghi `asr_cached` từng mẫu, `manifest.json` ghi đường dẫn và số dòng của cache.
-
-⚠️ Đặt lại `TRANSCRIPT_CACHE = None` trước khi đóng Docker: BTC mount private test rồi chạy trong
-container, không có cache nào ở đó.
-
-## Cách chạy — hai phiên Kaggle
-
-1. **Phiên 1** (mặc định của notebook): `SPLIT='train'`, `RUN_FULL=False`. Chạy preflight 50 mẫu có
-   nhãn. Đọc `local_train_score` trong `kaggle_v2/preflight/summary.json` — log cũng in ra dòng
-   `PREFLIGHT TRAIN SCORE = ...`. **So với 5.50 của `local_v4`.**
-2. **Phiên 2**, chỉ khi điểm chấp nhận được: `SPLIT='public_test'`, `RUN_FULL=True`. 634 mẫu với
-   prompt dài có thể vượt 12 giờ của Kaggle → dùng `RESUME_FROM` trỏ vào `kaggle_v2` của phiên trước.
-
-**Bộ nhớ một card** — phép tính này tôi đã viết sai **hai lần**, đây là bản có đo:
-
-| | GiB |
-|---|---|
-| trọng số fp16 | 7.49 |
-| KV cache 12288 token (36 lớp × 8 KV head × 128 dim × 2 × 2 byte = 144 KiB/token) | 1.69 |
-| workspace attention lúc prefill, **sau** vá GQA (đo trên Qwen3 thật, N=4096: 1792 MiB) | ~4 |
-| **tổng** | **~13.2 trên 14.46 trống** |
-
-Lần đầu tôi viết "một card không chứa nổi" mà không tính. Lần hai tôi viết 9.18 GiB và **bỏ sót
-dòng thứ ba** — chính dòng đã làm V14 OOM. Bài học đã ghi vào `EXPERIMENTS.md`: đừng viết một con số
-vào tài liệu nếu chưa tính nó.
-
-`SHARD_LLM_ACROSS_GPUS = False` là mặc định đúng, ASR ở `cuda:1`. Bật sharding lại là **đường chưa
-từng chạy được** — `cache.crop()` chưa bao giờ chạy với các lớp trải trên hai card — và nó **không**
-phải thứ chữa V14.
-
-**Vá GQA (bắt buộc, cell 9).** `transformers` bật `enable_gqa=True` mỗi khi `attention_mask is None`
-— đúng ca batch=1 không padding của ta — và comment trong code của nó nói làm vậy để *tránh* math
-kernel. Đo trên torch 2.11 thì ngược lại: `enable_gqa` **chính là** đường math kernel. V14 chết vì
-`32 × 9160² × 2 byte = 5.00 GiB`. Vá bằng cách buộc nó lặp KV head:
-
-```python
-from transformers.integrations import sdpa_attention as _sdpa
-_sdpa.use_gqa_in_sdpa = lambda *args, **kwargs: False
-```
-
-Đo trên Qwen3-4B thật: chưa vá 1657 → 5638 MiB khi N đi từ 2048 → 4096 (×3,4 ≈ N²); đã vá
-902 → 1792 MiB (×1,99, đúng N). Đã kiểm thêm ở pha **decode** (q_len=1, N=9160): `repeat_kv` còn
-**nhanh hơn** `enable_gqa` 3× và tốn ít bộ nhớ hơn, nên bản vá đúng ở cả hai pha, không chỉ prefill.
-
-**Nếu OOM:** hạ `MAX_CONTEXT`. Sàn là **8192**: dưới đó `MAX_CONTEXT − MAX_NEW_TOKENS` tụt xuống
-dưới 7783 và route chạy lại, là lúc điểm sụp. Đừng hạ `MAX_CONTEXT` về 4096 trong mọi trường hợp.
-
-**Nếu nhiều mẫu báo token limit / `InvalidDecision`:** *không* nâng `MAX_NEW_TOKENS` — V15 cho thấy
-đó là lối sai. Nguyên nhân là model đang trả lời dài dòng thay vì ra tool call. Xem
-`events.jsonl` → `invalid_decision` và `response` để biết nó viết gì. Từ V15, lần cụt thứ hai trả về
-`stop_reason = 'invalid_output'` và giữ các call đã thực hiện, thay vì làm lỗi cả mẫu.
-
-## Cần tải về những file nào
-
-Tab **Output** → `lifemate/kaggle_v2/`, chỉ lấy:
-
-| File | Vì sao |
-|---|---|
-| `preflight/summary.json` | **điểm thật** (`local_train_score`) |
-| `preflight/metrics.jsonl` | WER, `state_match`, `matched_calls` từng mẫu |
-| `submission.jsonl` | bài nộp (chỉ có ở phiên 2) |
-| `metrics.jsonl` | số đo từng mẫu |
-| `summary.json` | tổng hợp |
-| `run.log` | log |
-| `events.jsonl` | **V1 thiếu file này** — chứa `tool_prompt_routed`, `loose_call_recovered` |
-
-Model nằm ở `/kaggle/temp`, ngoài output, nên không cần lọc như lần V1.
+Phóng bằng **Save & Run All (Commit)** để đóng tab không giết kernel.

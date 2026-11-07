@@ -22,7 +22,7 @@ Hai dãy số độc lập nhau. Số chỉ tăng; một cấu hình đã đổi
 | [local_v3](local_v3/) | PhoWhisper-large + Qwen3-4B 4-bit, prompt 1800 | `public_test` 5 và 10 mẫu | — | Hai lần dò để đo tốc độ, không phải bài nộp |
 | [local_v4](local_v4/) | như v3 + ASR tách pha trên GPU | `train` 100 mẫu | **5.50** | Lần đầu đo F1 thật. **Tìm ra router prompt bỏ mất tool cần dùng ở 76% mẫu** — đọc trước khi cắt prompt lần nữa |
 | [kaggle_v1](kaggle_v1/) | PhoWhisper-large + Qwen3-4B | `public_test` 634/634 | **13.41** | **Thấp hơn local_v1 9 điểm.** 42 mẫu nộp 0 call + 33 failed = 11.8 điểm mất trắng, đủ giải thích cả khoảng cách |
-| [kaggle_v2](kaggle_v2/) | PhoWhisper-large + Qwen3-4B bf16, **không route prompt** | *chờ chạy* | — | Notebook đã sẵn sàng: context 12288, LLM 1 GPU + ASR GPU 2, vá parser. Đọc `.md` trước khi chạy |
+| [kaggle_v2](kaggle_v2/) | PhoWhisper-large + Qwen3-4B **fp16**, adapter **gộp**, **không route prompt** (đủ 147 tool) | `train` 50 mẫu held-out | **A 5.50 / B 0.44** | **Phép A/B công bằng đầu tiên về adapter — khác đúng một cờ.** Adapter thắng mọi cột: điểm **12.4×**, nhanh **1.40×**, quá-30-giây 18% vs 52%, 0 thất bại vs 3. Cơ chế: cùng số call nhưng ít token mỗi bước. **Và: `done` KHÔNG nghĩa là đúng** — cả hai lượt `done` 46/50 mà tổng F1 chỉ 2.75 và 2/9. Chốt dùng adapter cho bài nộp |
 | [local_v5](local_v5/) | như v4, bỏ ASR khỏi đường đi | `train` 50 mẫu | **3.90** | Toàn bộ VRAM cho LLM; GPU đỉnh 4096 MiB — bão hoà, tràn shared memory |
 | [local_v6](local_v6/) | như v5 + màng chắn `x-ref` | `train` 50 mẫu | **3.90** | A/B đúng một biến. Màng chắn bắn trúng 10 mẫu nhưng tốn lượt LLM: 2 chạm `time_limit`, 2 chạm `step_limit` |
 | [finetune_v1](finetune_v1/) | — (chỉ dựng dữ liệu) | — | — | Dataset SFT từ gold trajectory: 1233 train / 243 eval, chỉ **1.5%** token được tính loss |
@@ -34,6 +34,11 @@ Hai dãy số độc lập nhau. Số chỉ tăng; một cấu hình đã đổi
 
 | [local_v10](local_v10/) | như v9 + adapter, **cả tập** | `public_test` **634/634** | *chờ portal* | **Bài nộp đầy đủ đầu tiên có adapter.** 634 dòng hợp lệ, `done` 73.8%, 30 OOM, 24 quá 30 giây, 62 mẫu 0 call. Local **không chấm được** `public_test` (không có gold) — mốc so là `kaggle_v1` = 13.41. Tìm ra: `--prompt-token-budget` **không** chặn tổng prompt, và sàn 2335 token là một app nên hạ budget vô tác dụng |
 
+> **`done` không phải thước đo chất lượng.** `kaggle_v2` cho thấy `done` 46/50 đi cùng điểm
+> 5.50 và 0.44: mô hình tự tin kết thúc rồi gọi sai tool hoặc sai tham số, và `state_hash`
+> chấm all-or-nothing nên lệch một tham số là mất trắng cả mẫu. Đọc `stop_reasons` như số đo
+> vận hành, không như điểm.
+>
 > Hai điều cần biết trước khi đọc bảng này. **`local_v1` = 22.52 là đường đi khác** (llama.cpp
 > CPU + Qwen3.5-4B Q8 + reasoning), không phải pipeline HF hiện tại — pipeline hiện tại xuất
 > phát từ `kaggle_v1` = **13.41**. Và điểm của `local_v5`–`local_v7` đo trên 50 mẫu `train`
