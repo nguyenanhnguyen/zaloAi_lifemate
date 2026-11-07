@@ -60,7 +60,7 @@ Làm một lần, dùng cho cả ba lượt chạy. Vào <https://www.kaggle.com
 | slug | file từ repo | dùng ở lượt |
 |---|---|---|
 | (của BTC) `zaic2026-track-lifemate` | — Add Input trực tiếp | A, B, C |
-| `lifemate-lora` | `finetune/lora_V4/adapter_config.json` + `adapter_model.safetensors` | A, C |
+| `lifemate-lora` | `finetune/lora_V4/adapter_config.json` + `adapter_model.safetensors` (252 MiB) | A, C |
 | `lifemate-sft` | `sft.eval.jsonl` | A, B |
 | `lifemate-transcripts` | `public_test.transcripts.jsonl` | C |
 
@@ -135,6 +135,24 @@ Nó kiểm: GPU có mặt; dataset nào đã gắn; thư mục split tìm đư�
 (đúng số mẫu), `audio/`, `zaic_tools/`, `<split>_environment/`, catalog; adapter có **cả hai**
 file và `base_model_name_or_path` **khớp** `LLM_ID`; `sft.eval.jsonl` có khi dùng adapter;
 transcript cache phủ đủ audio; có mạng hay model đã gắn sẵn; và cấu hình không tự mâu thuẫn.
+
+### Ba lỗi của chính màng chắn, đã sửa ở lần chạy thật đầu tiên
+
+Lần chạy đầu trên Kaggle, màng chắn **chặn sai** một adapter hoàn toàn đúng. Ghi lại vì cả ba
+đều là lỗi của phép kiểm, không của dữ liệu — và một phép kiểm sai thì tệ hơn không kiểm.
+
+1. **`base_model_name_or_path` có thể là đường dẫn cache, không phải tên repo.**
+   `train_sft.py` ghi `/root/.cache/huggingface/hub/models--Qwen--Qwen3-4B-Instruct-2507/
+   snapshots/<rev>`. Tôi so `base.split('/')[-1]`, tức lấy **mã revision** rồi đem so với
+   **tên model** — không bao giờ khớp. Giờ khớp khi tên repo xuất hiện ở bất kỳ đâu trong
+   chuỗi, hoặc khi đúng `LLM_REV` xuất hiện.
+2. **Catalog in "3 tool" cho một catalog 147 tool.** Nó là
+   `{schema_version, note, apps:[{..., tools:[...]}]}` — 46 app; tôi đếm `len(dict)` = 3 key.
+   Con số sai mà vẫn mang nhãn `OK` còn tệ hơn im lặng, vì nó làm người đọc tin là đã kiểm.
+   Giờ cộng `len(app['tools'])` và chặn nếu dưới 50.
+3. **Mục [2] chỉ in một dòng `datasets`.** Kaggle mount theo hai kiểu:
+   `/kaggle/input/<slug>/` và `/kaggle/input/datasets/<user>/<slug>/`. Liệt kê tầng một che
+   mất mọi dataset thật. Giờ nó xuống thêm một tầng khi tầng một là `datasets`.
 
 Hai mục nó kiểm mà dễ bị bỏ qua nhất:
 
