@@ -210,3 +210,42 @@ và **30 giây/mẫu** cho *cả* ASR và LLM. Notebook này chạy T4 ×2, fp16
 
 Và `TRANSCRIPT_CACHE` phải trả về `None` trước khi đóng image: bản Docker buộc phải tự chạy
 ASR trong máy, nếu không nó sẽ không chạy nổi khi BTC mount private test.
+
+## Cái bẫy thứ hai: màng chắn tự giết lượt chạy
+
+Lượt Kaggle thứ hai (Version 19) chết ở **giây 514**, và không ở chỗ nào liên quan tới
+torchao hay dataset. Nó chết ở cell cài đặt:
+
+```
+Exception encountered at "In [3]":
+RuntimeError: Restart kernel before installing a different Transformers version.
+```
+
+Nguyên nhân là **mục [9] của chính màng chắn**. Nó `import peft` để kiểm dispatcher LoRA;
+`peft` kéo theo `transformers`, nên sau khi màng chắn chạy xong, `sys.modules` của kernel đã
+có `transformers` **5.16.1** của Kaggle. Cell cài đặt muốn 5.13.0, thấy module đã sống trong
+kernel, và từ chối làm việc — **đúng**, vì `pip install` không thay được một module đã nạp:
+nếu nó cứ cài rồi chạy tiếp thì model sẽ chạy trên bản cũ mà không ai biết.
+
+Tức là màng chắn đã sập vào đúng cái bẫy nó được viết ra để tránh, và bằng chính hành động
+"kiểm tra". Bài học là một tính chất, không phải một bản vá: **màng chắn phải read-only với
+`sys.modules`, không chỉ read-only với đĩa.** Nó chạy trước mọi thứ, nên mỗi `import` nó làm
+là một ràng buộc nó áp lên phần còn lại của notebook.
+
+Hai thứ đã sửa:
+
+- Mục **[9]** giờ gọi `peft` trong **subprocess** (`subprocess.run([sys.executable, '-c', …])`)
+  và chỉ đọc một dòng `GOOD`/`BAD` từ stdout. Đã thử ở local: in `GOOD 0.20.0`, và
+  `'transformers' in sys.modules` của tiến trình mẹ vẫn là `False`.
+- Mục **[10]** mới kiểm ngược: nếu `transformers` đã nằm trong `sys.modules` ở phiên bản khác
+  thì **chặn ngay**, với chỉ dẫn `Restart & Clear Cell Outputs` rồi chạy lại từ cell đầu. Thà
+  chặn ở giây 10 với thông báo đúng chỗ hơn là chết ở giây 514 với một thông báo nói về
+  transformers trong khi lỗi là một `import peft` cách đó mười mục.
+
+### Không phải lỗi dataset
+
+Việc tách thành 4 dataset **không** gây ra lượt chết nào. Log của Version 19 xác nhận cả bốn
+mount đúng và đủ: `lifemate-lora` 0.25 GiB, `lifemate-sft` 0.03 GiB, `lifemate-transcripts`,
+`zaic2026-track-lifemate` 1.05 GiB, `train.jsonl` 1545 mẫu, `147 tool trong 46 app`,
+`audio: đủ 1545/1545 file`, `base khớp LLM_ID` và khớp cả revision. Hai lượt chết vì **hai
+lỗi môi trường Python khác nhau**, cả hai đều ở phía phiên bản thư viện, không ở phía dữ liệu.
