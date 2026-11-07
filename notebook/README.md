@@ -1,0 +1,168 @@
+# Chạy trên Kaggle — hướng dẫn và suy luận sau điểm 11.18
+
+Tài liệu **duy nhất** của thư mục này. Notebook thì `.gitignore` không bỏ, nhưng cách chạy
+thì không nằm trong notebook.
+
+```
+notebook/
+  README.md                     <- bạn đang đọc
+  lifemate_kaggle_v2.ipynb      <- notebook suy luận, có MÀNG CHẮN ở cell 3
+  lifemate_kaggle_train.ipynb   <- notebook huấn luyện (đã sinh ra lora_V4)
+  lifemate_kaggle_v1.ipynb      <- bản đã nộp được 13.41, giữ để tham chiếu
+```
+
+## Suy luận lại sau 11.18
+
+[`local_v10`](../results/local_v10/README.md) nộp 634 mẫu `public_test` với adapter và được
+**11.18**, thấp hơn [`kaggle_v1`](../results/kaggle_v1/README.md) = **13.41** là 2.23 điểm.
+
+Bóc tách khoảng cách đó bằng số đã có:
+
+| | |
+|---|---|
+| điểm/mẫu trung bình | 0.0176 |
+| điểm/mẫu trên 604 mẫu **không** lỗi | 0.0185 |
+| trần nếu sửa **hết** 30 mẫu OOM | **11.74** |
+| khoảng cách còn lại so với 13.41 | **1.67** |
+
+**OOM chỉ giải thích được 0.56 trong 2.23.** Còn 1.67 thuộc về chỗ khác, và nghi phạm chính
+là **prompt bị cắt tool**: `local_v10` có 62 mẫu nộp 0 tool call, `kaggle_v1` chỉ 42. Ngân
+sách 2000 token ép `fit_tools` xuống còn một app, nên nhiều mẫu không hề *thấy* tool nó cần.
+
+Đó là tin tốt cho Kaggle, vì ràng buộc ấy **không tồn tại** ở đó: T4 ×2 = 30 GiB, notebook
+V2 gửi **cả** catalog và không route (`MAX_CONTEXT = 12288`). Biến nghi ngờ nhất bị loại bỏ
+hoàn toàn.
+
+Và phải nói rõ điều ngược lại: **11.18 KHÔNG chứng minh adapter tệ.** Hai lượt khác nhau ở
+*ba* biến — adapter, ngân sách tool, và 4-bit so với fp16. Quy một hiệu số cho một biến khi
+ba biến cùng đổi là đúng kiểu lỗi đã ghi ở `local_v7`. Dự án **vẫn chưa có** một A/B công
+bằng nào cho adapter. Hai lượt ngắn dưới đây chính là để có nó.
+
+### Một thứ KHÔNG cần port sang Kaggle
+
+`local_v9` kết luận "bật `--ask-retries 1` trên Kaggle". **Bỏ kết luận đó** — notebook không
+có cái lỗi mà `src/pipeline.py` có. Cell 14 ghi `asked_missing = True` rồi **chạy tiếp** với
+`ASK_LIMIT = 2`, chứ không `break` ở lần hỏi đầu. Cửa một chiều chỉ tồn tại ở đường local.
+Notebook đã làm điều đó ở dạng mạnh hơn từ trước.
+
+## Ràng buộc quyết định cách chia lượt
+
+`kaggle_v1` đo **34.9 s/mẫu** (p95 68.9, max 90.2) → 634 mẫu ≈ **6.1 giờ**. V2 gửi cả catalog
+nên prompt dài hơn và sẽ chậm hơn. Session GPU của Kaggle **tối đa 9 giờ**.
+
+Nên lượt nộp phải có `TRANSCRIPT_CACHE` để bỏ hẳn ASR, và phải biết `RESUME_FROM` nếu đứt.
+
+## Bốn dataset cần đóng
+
+Làm một lần, dùng cho cả ba lượt chạy. Vào <https://www.kaggle.com/datasets> → **New Dataset**
+→ kéo file vào → đặt slug như bảng.
+
+| slug | file từ repo | dùng ở lượt |
+|---|---|---|
+| (của BTC) `zaic2026-track-lifemate` | — Add Input trực tiếp | A, B, C |
+| `lifemate-lora` | `finetune/lora_V4/adapter_config.json` + `adapter_model.safetensors` | A, C |
+| `lifemate-sft` | `sft.eval.jsonl` | A, B |
+| `lifemate-transcripts` | `public_test.transcripts.jsonl` | C |
+
+**Tránh đúng cái bug lần trước:** dataset chỉ chứa **dữ liệu**, không chứa `.py`. Lần trước
+notebook gọi vào một file `.py` nằm trong dataset và nghẽn ở đó. Mọi mã nằm trong notebook
+hoặc trong repo clone; dataset chỉ là trọng số và JSONL.
+
+**Và không đổi tên file.** Màng chắn tìm `adapter_config.json`, `adapter_model.safetensors`,
+`sft.eval.jsonl` bằng **glob theo tên**, không theo đường dẫn — vì Kaggle mount ở
+`/kaggle/input/<slug>/` hoặc `/kaggle/input/datasets/<user>/<slug>/` tuỳ cách Add Data, và
+đường dẫn cứng sai thì `ADAPTER_DIR` thành `None` một cách **âm thầm**: model gốc chạy, và ta
+chấm một bài nộp base trong khi tin là đang chấm adapter. Đổi tên file là phá cơ chế đó.
+
+Không lấy `checkpoint-*` — đó là bản giữa đường của `--save-steps 10`. Chỉ hai file cuối.
+
+## Ba lượt chạy, theo thứ tự này
+
+Hai lượt đầu ngắn và **quyết định**; lượt thứ ba dài và chỉ để **sinh file nộp**. Chạy ngược
+thứ tự là đốt 6 giờ quota vào một cấu hình chưa biết tốt hay tệ.
+
+### Lượt A — adapter, 50 mẫu held-out (~1 giờ)
+
+Add Input: `zaic2026-track-lifemate`, `lifemate-lora`, `lifemate-sft`.
+
+Trong cell cấu hình, chỉ sửa:
+
+```python
+SPLIT = 'train'
+RUN_FULL = False
+PREFLIGHT_SAMPLES = 50
+USE_ADAPTER = True
+TRANSCRIPT_CACHE = None
+```
+
+### Lượt B — base, **đúng 50 mẫu đó** (~1 giờ)
+
+Add Input: giữ nguyên, bỏ `lifemate-lora` ra cũng được nhưng không cần.
+
+```python
+USE_ADAPTER = False      # đổi DUY NHẤT dòng này
+```
+
+Đổi một biến và chỉ một biến. `PREFLIGHT_SAMPLES` và `SEED` giữ nguyên nên hai lượt chấm
+cùng 50 mẫu, và `HOLDOUT_IDS` đảm bảo chúng không nằm trong `sft.train.jsonl`.
+
+**Hiệu số A − B là A/B công bằng đầu tiên của dự án cho adapter.** Nó trả lời câu mà 9 giờ
+huấn luyện đặt ra, và không lượt nào trước đây trả lời được.
+
+### Lượt C — bên thắng, cả `public_test` (~6 giờ)
+
+Add Input: thêm `lifemate-transcripts`.
+
+```python
+SPLIT = 'public_test'
+RUN_FULL = True
+USE_ADAPTER = <bên thắng ở A/B>
+TRANSCRIPT_CACHE = Path('/kaggle/input/lifemate-transcripts/public_test.transcripts.jsonl')
+```
+
+Bật **Save Version → Save & Run All (Commit)** cho lượt này, đừng chạy trong cửa sổ tương
+tác: tab đóng là mất kernel. Output lấy ở panel Output của version.
+
+Nếu đứt giữa đường: đóng `RUN_DIR` của lượt đó thành dataset, Add Input, rồi đặt
+`RESUME_FROM` trỏ vào đó. Nó chỉ chứa kết quả từng mẫu, không chứa model.
+
+## Trước mỗi lượt: ba dòng phải đọc
+
+Màng chắn ở **cell 3** chạy trong vài giây, không nạp model, không tốn GPU. Thiếu thứ bắt
+buộc thì nó `raise SystemExit` ngay thay vì để bạn phát hiện ở giờ thứ 8.
+
+Nó kiểm: GPU có mặt; dataset nào đã gắn; thư mục split tìm được và **đủ** `<split>.jsonl`
+(đúng số mẫu), `audio/`, `zaic_tools/`, `<split>_environment/`, catalog; adapter có **cả hai**
+file và `base_model_name_or_path` **khớp** `LLM_ID`; `sft.eval.jsonl` có khi dùng adapter;
+transcript cache phủ đủ audio; có mạng hay model đã gắn sẵn; và cấu hình không tự mâu thuẫn.
+
+Hai mục nó kiểm mà dễ bị bỏ qua nhất:
+
+- **`zaic_tools` là THƯ MỤC package**, không phải `zaic_tools.py`. Kiểm sai chỗ này từng sinh
+  ra cảnh báo "thiếu zaic_tools" trong khi `ToolEnv` nạp bình thường và `state_hash` vẫn ra.
+- **`<split>_environment/` chỉ được kiểm tồn tại.** Luật cấm đọc, copy hay parse bất kỳ file
+  nào dưới đó, kể cả `state.json`, nên màng chắn không mở gì bên trong.
+
+Sau khi nó in `ĐỦ ĐIỀU KIỆN CHẠY`, đọc tiếp hai dòng này ở đầu output cell cấu hình:
+
+```
+ADAPTER_DIR: /kaggle/input/.../lora_V4 (1 ứng viên tìm thấy)
+HOLDOUT_IDS: /kaggle/input/.../sft.eval.jsonl
+```
+
+`ADAPTER_DIR: None` khi `USE_ADAPTER=True` thì màng chắn đã chặn. `HOLDOUT_IDS: None` ở lượt
+A hoặc B cũng bị chặn — vì nếu không, preflight lấy mẫu từ cả split và 42/50 mẫu nằm trong
+`sft.train.jsonl`: điểm sẽ tăng và con số đó vô nghĩa.
+
+**Màng chắn không chứng minh pipeline chạy được** — nó chỉ chứng minh file đã đủ. Bằng chứng
+chạy được là mẫu **thật** đầu tiên ra `state_hash` ở cell preflight. Dự án đã mất hai lượt vì
+nhầm "nạp model xong" với "chạy được"; đừng rời máy trước mẫu đầu tiên.
+
+## Những gì Kaggle KHÔNG trả lời được
+
+Vòng Docker chạy A30 24 GB một card, **bf16**, adapter được **gộp** (`merge_and_unload()`),
+và **30 giây/mẫu** cho *cả* ASR và LLM. Notebook này chạy T4 ×2, fp16, hai card, với
+`T4_TEST_DEADLINE_SECONDS = 600`. Không con số thời gian nào ở đây dự đoán được vòng đó.
+
+Và `TRANSCRIPT_CACHE` phải trả về `None` trước khi đóng image: bản Docker buộc phải tự chạy
+ASR trong máy, nếu không nó sẽ không chạy nổi khi BTC mount private test.
