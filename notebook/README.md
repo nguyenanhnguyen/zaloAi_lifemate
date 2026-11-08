@@ -427,25 +427,72 @@ PREFLIGHT TRAIN SCORE = ...   (luat thi, co xoa diem mau >=30s)
 Hiệu hai số là chỗ tốc độ sửa được, tách khỏi chỗ phải sửa bằng chất lượng. Gộp chung vào một
 con số là tự bỏ thông tin — và đó đúng là cái đã làm phép A/B `kaggle_v2` không đọc được.
 
-## Kế hoạch chạy v3
+## Một lượt, tất cả hiệu chỉnh — và vẫn quy được công cho từng cái
 
-Mỗi lượt `train` ~35 phút (không còn transcript cache), khác nhau **đúng một cờ**:
+Mặc định của notebook giờ là **một lượt duy nhất**:
 
-| | `ASK_REQUIRE_READ` | `BARE_READ_GATE` | trả lời câu gì |
-|---|---|---|---|
-| **E** (baseline) | `False` | `'off'` | mốc đúng cho v3 |
-| **D** | `True` | `'off'` | ask-gate ăn không |
-| **G** | `False` | `'all'` | bare-read ăn không |
-| **H** | cờ thắng của D/E | cờ thắng của E/G | hai cái có cộng dồn |
+```python
+SPLIT = 'public_test';  RUN_FULL = True
+ASK_REQUIRE_READ = True;  BARE_READ_GATE = 'all';  STRATIFY_PREFLIGHT = True
+```
 
-Tất cả `SPLIT='train'`, `RUN_FULL=False`. **E trước**, vì `kaggle_v2` A = 5.50 đo trên tập lệch
-1,244× nên **không** so trực tiếp được.
+Phóng bằng **Save & Run All (Commit)**, hai dataset (BTC + `lifemate-lora`), ~4,7 giờ:
+nạp model ~9 phút + preflight 50 mẫu ~20 phút + 634 mẫu ~4,2 giờ.
 
-Rồi lượt F: cờ thắng, `SPLIT='public_test'`, `RUN_FULL=True`, ~4,7 giờ, **Save & Run All
-(Commit)**.
+Một lượt ra **cả hai** thứ, vì notebook **luôn** chạy preflight 50 mẫu `train` **có nhãn**
+trước khi chạy split chính:
 
-Đọc gì ở mỗi lượt, theo thứ tự: `khop 261 mau` ở màng chắn `[5]` → `lech 0.99x` ở dòng `Tap
-do` → `CHAT LUONG THUAN` → bảng `PHAN LOP LOI`.
+| | |
+|---|---|
+| số đo trên dữ liệu có nhãn | điểm có/không trần 30 giây, bảng phân lớp lỗi, bảng quy công gate |
+| bài nộp | `submission.jsonl` 634/634 |
+
+### Quy công cho từng cờ trong cùng một lượt
+
+Không A/B được thì phải đo bên trong. Vòng lặp giữ `wanted_calls` — danh sách call **như model
+muốn**, trước khi `BARE_READ_GATE` sửa, và chỉ gồm call **thực sự chạy trên env**, nên nó thẳng
+hàng với bài nộp. Chấm cả hai danh sách với gold trên **cùng quỹ đạo**:
+
+```
+QUY CONG CHO TUNG GATE  (trong chinh luot nay)
+  bare-read [all]: bo N lan tren M mau
+      exact 34 (neu KHONG bo) -> 51 (da bo)  = +17 call duoc cuu
+  ask-gate [BAT]: tu choi N lan tren M mau, K mau sau do LAM DUOC viec (done + co ghi)
+```
+
+Hai con số 34 → 51 ở trên **không phải ví dụ**: chạy chính `train_score` của notebook trên
+`results/local_v6/xref_gate.jsonl` cho đúng `exact 51, exact_unstripped 34, gain 17`, khớp
+`scripts/diag/bare_args.py` tính độc lập. Hai cách làm khác nhau ra cùng một số.
+
+Và khi gate **không** ăn, bảng nói thẳng chứ không im lặng:
+
+- bỏ mà không cứu được call nào → *"BAN KHONG TRUNG: tool trong allowlist không phải tool model
+  gọi sai, hoặc mẫu đó lệch state sẵn."*
+- chặn hỏi xong model vẫn không ghi gì → *"KHÔNG ĂN: vấn đề không phải nó hỏi sớm, mà là nó
+  không biết phải làm gì."*
+
+### Giới hạn phải đọc đúng
+
+`bare_read_gain` là **"bao nhiêu call của ta đã chết nếu không bỏ"**, không phải một phép A/B
+đầy đủ: sau mỗi lần bỏ, kết quả tool khác đi nên quỹ đạo sau đó cũng khác. Còn ask-gate thì
+**không** có phản chứng trong cùng lượt — nó đổi hẳn đường đi của model. Số đọc được cho nó là
+**cơ chế** (chặn bao nhiêu lần, bao nhiêu mẫu sau đó ghi thật), không phải delta điểm. Muốn
+delta điểm của ask-gate thì vẫn phải hai lượt; làm sau, khi con số cơ chế cho thấy đáng.
+
+### Nếu muốn dừng sớm để đọc số
+
+Đặt `RUN_FULL = False` → ~30 phút, ra đủ bảng phân lớp và bảng quy công, không ra bài nộp.
+
+## Hai phép kiểm giữ cho lượt này không chạy mù
+
+1. Màng chắn `[5]` **không còn bỏ qua theo `SPLIT`.** Trước đó nó có nhánh
+   `if SPLIT != 'train': ok(...)`, tức đúng lượt một-shot `public_test` — lượt phụ thuộc vào tập
+   held-out nhiều nhất — lại là lượt không kiểm gì. Giờ nó glob `train/train.jsonl` và kiểm
+   `khop 261 mau` ở **mọi** lượt.
+2. `verify_notebook.py` kiểm `BARE_READ_TOOLS` trong notebook **phải khớp** thứ
+   `scripts/diag/bare_args.py` tính từ gold, cho cả mức `safe` và `all`. Hằng số chép tay thì
+   trôi khỏi phép đo trong im lặng, và một gate bỏ đối số của tool **sai** làm hỏng call thay vì
+   cứu nó.
 
 ## `lora_V5` — adapter tiếp theo, và vì sao không phải "huấn luyện thêm"
 
