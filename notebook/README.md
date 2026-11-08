@@ -249,3 +249,143 @@ mount đúng và đủ: `lifemate-lora` 0.25 GiB, `lifemate-sft` 0.03 GiB, `life
 `zaic2026-track-lifemate` 1.05 GiB, `train.jsonl` 1545 mẫu, `147 tool trong 46 app`,
 `audio: đủ 1545/1545 file`, `base khớp LLM_ID` và khớp cả revision. Hai lượt chết vì **hai
 lỗi môi trường Python khác nhau**, cả hai đều ở phía phiên bản thư viện, không ở phía dữ liệu.
+
+---
+
+# kaggle_v3 — chạy thuần, và mỗi lượt trả về bốn số thay vì một
+
+`lifemate_kaggle_v3.ipynb` (21 cell, cùng số cell với v2). Bốn thay đổi, **mỗi cái nhắm một
+thứ đã đo được**, không cái nào là dọn dẹp cho đẹp.
+
+## 1. Từ 4 dataset về 2 — và bỏ luôn một chế độ thất bại
+
+`scripts/build_sft.py:holdout()` chia train/eval bằng **một hàm thuần của `sample_id`**:
+
+```python
+sha256(id)[:8] / 0xFFFFFFFF < 0.15
+```
+
+Nên notebook **tự dựng lại** tập held-out bằng ba dòng, không cần `sft.eval.jsonl`. Đã kiểm ở
+local: 1545 mẫu `train` → **261 mẫu held-out, khớp chính xác** con số màng chắn v2 đọc từ
+dataset.
+
+Cái bỏ được không chỉ là một mount. v2 dò file bằng `glob`, và **khi glob không thấy thì nó âm
+thầm rơi về lấy mẫu từ cả split** — nơi 42/50 mẫu nằm trong `sft.train.jsonl`, tức đo adapter
+trên dữ liệu nó đã học thuộc. v3 không còn nhánh đó: thiếu tập held-out thì `assert` chết ngay.
+
+`lifemate-transcripts` cũng bỏ: bản Docker **bắt buộc** tự chạy ASR, nên chạy sẵn ASR ở đây là
+đo một cấu hình **khác** cấu hình sẽ bị chấm. Giá phải trả đã biết: `kaggle_v2` C có cache chạy
+18.29 s/mẫu, lượt A không cache chạy 23.84 — khoảng +1 giờ cho 634 mẫu.
+
+Còn lại **hai** dataset: của BTC, và adapter (252 MiB, không nhúng vào notebook được). Màng
+chắn giờ cảnh báo nếu có hơn hai.
+
+> Nói thẳng một điều: 4 dataset **chưa bao giờ** gây ra lỗi nào. Ba lượt chết đều do phiên bản
+> thư viện Python, và log luôn xác nhận đủ 4 mount. Việc gộp này mua được *ít chỗ để sai*, chứ
+> không sửa một lỗi đang có.
+
+## 2. Lấy mẫu phân tầng — vì thước đo đang lệch
+
+Đo được 2026-11-08: pool 261 mẫu held-out có gold **2.30 call/mẫu**, khớp cả tập train (2.29).
+Nhưng `random.sample(pool, 50)` của v2 rút ra một tập **2.86** — nặng hơn **1.244×**.
+
+v3 phân tầng theo số gold call. Chạy đúng đoạn code đã nhúng, trên dữ liệu thật:
+
+| | mẫu | gold call/mẫu | lệch so với pool |
+|---|---|---|---|
+| pool held-out | 261 | 2.30 | — |
+| v2 `random.sample` | 50 | 2.86 | **1.244×** |
+| **v3 phân tầng** | 50 | **2.28** | **0.992×** |
+
+Phân bố theo số gold call:
+
+```
+ k   pool%   v2%    v3%
+ 0     8.8    2.0    8.0     <- v2 gan nhu khong thu nhanh nay
+ 1    24.5   16.0   24.0
+ 2    24.9   26.0   28.0
+ 3    22.2   24.0   22.0
+ 4     8.8   14.0    8.0
+ 5    10.7   18.0   10.0
+```
+
+Cột `k=0` đáng để ý riêng: v2 chỉ rút **2%** mẫu có gold rỗng trong khi thực tế là **8.8%**.
+Nhánh chấm `float(not predicted) if not gold` — "gold rỗng, ta cũng không gọi gì → 1.0 điểm" —
+gần như chưa bao giờ được thử. Cùng `SEED` nên vẫn tái lập được y nguyên.
+
+## 3. Ask-gate: đòi đọc trước khi hỏi
+
+`sys.ask_missing_info` là **33/111 = 30% tất cả call** ta nộp, trong khi gold muốn nó ở 3.9%
+mẫu. Nó lãng phí hai lần: tốn một lượt trong trần `MAX_STEPS=8`, và làm `state_hash` lệch.
+`local_v8` đã thấy base hỏi sai ở 91% mẫu; adapter **không** sửa được.
+
+v3 từ chối `ask_missing_info` khi chưa đọc được gì, và đẩy model đi gọi một tool đọc.
+
+**Đánh đổi đã định lượng trên cả 1545 mẫu gold, không phỏng đoán:**
+
+| | mẫu | gate |
+|---|---|---|
+| gold có `ask` | 217 (14.0%) | |
+| ask **sau** một tool đọc | 153 | **không chạm** |
+| ask ở **vị trí đầu** | 60 | **chặn** |
+
+Và đúng 60 mẫu đó là **toàn bộ** số mẫu mà gold *chỉ* có `ask`. Tức gate chỉ bao giờ chặn đúng
+trường hợp ask-là-cả-câu-trả-lời. Ở đó ta bị buộc đọc trước nên F1 từ 1.00 → `2·1/(2+1)` =
+**0.67**, mất **tối đa 1.29 điểm** trên thang 100 — và chỉ mất nếu hiện giờ ta đang làm *đúng*
+những mẫu đó, điều rất có thể không.
+
+Net dương là **khả năng, không phải chắc chắn**. Nên nó là cờ `ASK_REQUIRE_READ` để A/B đúng
+một biến, không phải một bản vá mặc định mãi mãi.
+
+## 4. Mỗi lượt trả về bảng phân lớp, không chỉ một số
+
+Đây là thay đổi đáng giá nhất về workflow. v2 trả về **đúng một số** sau 30 phút đến 4 giờ
+GPU. Một con số không nói được nên sửa gì.
+
+v3 in bốn lớp, cộng lại bằng toàn bộ gold call, kèm tool bỏ sót/thừa hay gặp nhất:
+
+```
+PHAN LOP LOI  (bon lop cong lai = toan bo gold call)
+  gold 114 call (2.28/mau) | ta nop NN call
+  exact      ...   ..% cua gold   <- RECALL thuc
+  args_wrong ...   ..%
+  missing    ...   ..%
+  extra      ...   ..% cua pred
+  BO SOT nhieu nhat : contacts.search x18, calendar.list_events x11, ...
+  goi THUA nhieu nhat: sys.ask_missing_info x33, ...
+```
+
+Nó dùng lại chính `matched` của phép ghép đôi hai phía trong `train_score`, nên **cùng ngữ
+nghĩa chấm điểm thật**, không phải một phép so xấp xỉ khác. Số cũng ghi vào `summary.json` tại
+khoá `error_classes`, và `scripts/diag/error_classes.py` cho cùng bảng đó từ một file
+submission **đã có** — không GPU, vài giây.
+
+Dòng `sys.ask_missing_info` ở phần THỪA là thước đo trực tiếp của thay đổi số 3.
+
+## Kế hoạch chạy v3
+
+Hai lượt, khác nhau **đúng một cờ**, mỗi lượt ~35 phút (không còn transcript cache):
+
+| | `SPLIT` | `RUN_FULL` | `ASK_REQUIRE_READ` |
+|---|---|---|---|
+| **D** | `train` | `False` | `True` |
+| **E** | `train` | `False` | `False` |
+
+D − E là phán quyết về ask-gate. Mốc `kaggle_v2` A = **5.50** đo trên tập lệch 1.244× nên
+**không so trực tiếp được** — E là baseline đúng cho v3.
+
+Rồi lượt F: cờ thắng, `SPLIT='public_test'`, `RUN_FULL=True`, ~4.7 giờ (634 × 23.8 s + nạp
+model), phóng bằng **Save & Run All (Commit)**.
+
+## Những gì v3 KHÔNG sửa
+
+- **Notebook vẫn tự dựng lại pipeline, không import gì từ `src/`.** Nên `kaggle_v3` và
+  `local_v*` khác nhau ở *code*, không chỉ cấu hình — mọi so sánh giữa hai môi trường vẫn lẫn
+  biến. Đây là nợ kỹ thuật đắt nhất còn lại.
+- **Tải 13.4 GiB model mỗi lượt (~9 phút).** Với lượt 35 phút đó là 25% thời gian. Sửa bằng
+  cách đẩy model thành một Kaggle dataset — và việc này **phải làm cho Docker dù sao**, vì luật
+  đòi chạy hoàn toàn offline.
+- **126 call `missing` (bỏ sót bước tra cứu).** Khối lớn nhất. Màng chắn ID bịa đã có sẵn
+  (Workflow fix B, chặn 42 lần ở `local_v10`) nhưng **chưa ai đo** nó có bắn đúng 18 mẫu
+  `contacts.search` này không. Việc tiếp theo, sau khi có D và E.
+- **70 mẫu (11%) quá 30 giây ở `kaggle_v2` C.** Vòng Docker trên A30 thì đó *là* điểm.
