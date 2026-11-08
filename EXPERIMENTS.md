@@ -1536,3 +1536,33 @@ Recall **không** phải ràng buộc đang chặn; nó là ràng buộc đang c
 | `verify_notebook.py` ghim cứng `lifemate_kaggle_v2.ipynb` và bỏ qua `argv` | Mọi lần chạy `verify_notebook.py notebook/lifemate_kaggle_v3.ipynb` là **kiểm v2 rồi báo "TẤT CẢ ĐẠT" cho v3**. Một cell v3 có f-string không đóng đã đi qua phép kiểm này | Phép kiểm không đọc đối tượng được giao thì **tệ hơn là không có**: nó phát ra sự tự tin sai. In ra đường dẫn thật sự đang kiểm |
 | Đọc 12.4× của A/B adapter là chất lượng | Arm base mất 26/50 mẫu vì quá 30 giây. Hai nguyên nhân mất điểm khác nhau bị gộp vào một con số | Điểm có hình phạt thời gian thì phải báo **hai** số. Gộp lại là tự bỏ thông tin |
 | Đo adapter bằng điểm, không bằng recall | Điểm 4.00 > 2.57 làm tôi kết luận adapter tốt hơn, trong khi `exact` là 19 so với 20 | Điểm all-or-nothing không phân giải được. Phải đo thêm lớp lỗi |
+
+## 2026-11-08 — kaggle_v3 một-shot: ba gate cộng lại là net −0.39
+
+`public_test`, 634/634, 4 h 10. **Portal 21.25** so với `kaggle_v2` C **21.64**.
+
+Lần đầu một lượt trả về đủ dữ kiện để kết tội từng gate, và phán quyết là ngược mong đợi:
+
+- **ask-gate chạy đúng cơ chế, sai chiều điểm.** `sys.ask_missing_info` ở vị trí 0: **0 mẫu**.
+  Mẫu chỉ-có-ask: **0** — nhưng gold có 60/1545 mẫu như vậy, nơi F1 rơi 1.00 → 0.67, tức
+  **tối đa −1.3 điểm** trên 634 mẫu. `ask` không giảm (63 call), chỉ bị **đẩy lùi** sang vị
+  trí 1 (×29), 2 (×18), tới 7. Mỗi lần đẩy lùi tốn một lượt trong trần `MAX_STEPS=8`.
+- **`BARE_READ_GATE='all'` không đáng giữ.** 191 call bare trong submission, **56** thuộc
+  hai tool rủi ro (`smart_home.get_status`, `calendar.list_events`), nơi 14–18% gold **có**
+  đối số. +17 exact đo trên train-50 không chuyển thành điểm trên `public_test`.
+- **`state_hash` được xác nhận là ràng buộc.** Recall call tăng đo được mà điểm không lên.
+
+**Và một phát hiện về luật, quan trọng hơn cả ba gate:** portal chấm `submission.jsonl`, nó
+không chạy lại code ta. Nên **96 mẫu (15.1%) quá 30 giây KHÔNG bị trừ ở con số 21.25**.
+Trần 30 giây chỉ bắn ở vòng Docker trên A30. Nghĩa là 21.25 là điểm *chất lượng thuần*, và
+15.1% kia là một khoản lỗ đã ký nhưng chưa thanh toán.
+
+`failed` = 28 = `step_limit` 15 + `repeated_invalid` 13, **trùng khít** — nhãn `failed`
+trong metrics là nhãn của ta, không phải phán quyết của BTC.
+
+| bài học | |
+|---|---|
+| đọc "+17 exact trên train-50" là "+điểm trên public_test" | state_hash là all-or-nothing; recall tăng trên mẫu đã sai hash thì bằng 0 |
+| chặn một call sai chỗ tưởng là bỏ được nó | gate chỉ đẩy lùi `ask`, và lần đẩy lùi tốn một lượt lẫn vài giây |
+| tưởng trần 30 giây đang trừ điểm portal | portal chấm file; trần chỉ bắn ở vòng Docker |
+
