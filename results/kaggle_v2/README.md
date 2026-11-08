@@ -106,7 +106,79 @@ Và: **4 dataset tách rời không gây lỗi nào.** Log cả ba lượt đề
 `zaic2026-track-lifemate` 1.05 GiB, `train.jsonl` 1545 mẫu, `147 tool trong 46 app`,
 `audio: đủ 1545/1545 file`.
 
-## Lượt C — cấu hình chốt để ra bài nộp
+## Lượt C — bài nộp `public_test` 634/634
+
+Chạy 2026-11-07, **13624.8s (3 giờ 47 phút)**, `Successfully ran`. Cấu hình = lượt A thắng,
+đổi bốn dòng: `SPLIT='public_test'`, `RUN_FULL=True`, `USE_ADAPTER=True`, và
+`TRANSCRIPT_CACHE` trỏ vào `public_test.transcripts.jsonl`.
+
+```
+Summary: {'completed': 634, 'selected': 634, 'split_size': 634,
+          'complete_selection': True, 'full_submission': True, 'failed': 28,
+          'stop_reasons': {'done': 530, 'asked_missing': 76,
+                           'step_limit': 17, 'repeated_invalid': 11},
+          'mean_seconds': 18.29, 'p95_seconds': 36.40, 'max_seconds': 87.21,
+          'over_30_seconds': 70}
+```
+
+File nộp: `results/kaggle_v2/submission.jsonl` (ngoài git, 227.6 KB). Đã kiểm:
+
+```
+634/634 dòng · đủ ID · ĐÚNG thứ tự · 0 trùng · 0 thiếu state_hash
+schema ['id','state_hash','tool_calls'] · 1684 tool call (2.66/mẫu)
+```
+
+| `stop_reason` | mẫu | % |
+|---|---|---|
+| `done` | 530 | **83.6%** |
+| `asked_missing` | 76 | 12.0% |
+| `step_limit` | 17 | 2.7% |
+| `repeated_invalid` | 11 | 1.7% |
+
+### So với `local_v10` = 11.18 điểm
+
+Cùng 634 mẫu `public_test`, cùng adapter. Khác: fp16 + adapter **gộp** + đủ 147 tool, thay vì
+nf4 + gắn kèm + ngân sách 2000 token.
+
+| | local_v10 (**11.18**) | kaggle_v2 C |
+|---|---|---|
+| mẫu nộp **0 tool call** | 62 | **7** |
+| tổng tool call | 1144 | **1684** |
+| `done` | 468 (73.8%) | **530 (83.6%)** |
+| thất bại | 30 (OOM) | 28 (`step_limit` + `repeated_invalid`) |
+
+**62 → 7 mẫu nộp rỗng.** Đó đúng là thứ tôi đã chỉ ra là nguyên nhân chính của khoảng cách
+11.18 vs 13.41: `--prompt-token-budget 2000` trên laptop 4 GB cắt mất tool cần dùng, và sàn
+2335 token là một app nên không hạ thêm được. Ở đây không có giới hạn đó.
+
+Lượt này **chưa có điểm portal**. Khi có, đây là ba mốc để so: `local_v10` = 11.18 (cùng
+adapter, bị cắt tool), `kaggle_v1` = 13.41 (đủ tool, **không** adapter), `local_v1` = 22.52
+(đường đi khác: llama.cpp CPU + Qwen3.5-4B Q8 + reasoning).
+
+### Chỗ rò còn lại, đã khoanh được
+
+**28 mẫu thất bại và 17 trong đó là `step_limit`.** Nhìn danh sách mẫu chậm nhất thì rõ: 8
+trong 10 mẫu chậm nhất có `llm_turns: 8` — tức **chạm đúng trần `MAX_STEPS=8`** rồi bị cắt.
+
+```
+public_0025  87.21s  llm_turns 8  step_limit
+public_0007  60.20s  llm_turns 8  step_limit
+public_0133  56.74s  llm_turns 8  step_limit
+public_0031  53.28s  llm_turns 8  step_limit
+public_0008  51.79s  llm_turns 8  step_limit
+```
+
+Đây là một **tham số**, không phải một giới hạn vật lý — khác hẳn 29 mẫu OOM của `local_v10`
+mà tôi phải bỏ dở vì card 4 GB. Nhưng nâng `MAX_STEPS` **chưa chắc ăn điểm**: có thể model
+đang lặp vô ích chứ không đang thiếu bước. Phải đo trước: lấy 17 mẫu đó, chạy lại với
+`MAX_STEPS=12`, xem `state_hash` có khớp gold thêm mẫu nào. Chưa đo thì chưa đổi.
+
+**70 mẫu (11%) quá 30 giây, max 87.2s.** Vòng public ta tự nộp nên không bị chặn. Vòng Docker
+trên A30 thì **đây là điểm** — mỗi mẫu quá hạn ăn 0. A30 nhanh hơn T4 nên con số sẽ nhỏ hơn,
+nhưng 87 giây thì không có GPU nào cứu được: `MAX_STEPS` phải xuống, hoặc phải có màng chắn
+thời gian cắt sớm và nộp những gì đã gọi.
+
+## Phụ lục — cấu hình lượt C
 
 Đổi so với lượt A:
 
@@ -118,7 +190,8 @@ TRANSCRIPT_CACHE = Path('/kaggle/input/datasets/anhnguyen7508/'
                         'lifemate-transcripts/public_test.transcripts.jsonl')
 ```
 
-Ước lượng: 634 mẫu × 23.8 s = **4.2 giờ** nếu chạy ASR inline; có transcript cache
-(phủ 1933/1933 audio) thì ít hơn. Hạn session GPU là 9 giờ nên vừa.
+Ước lượng của tôi trước khi chạy là **4.2 giờ** (634 × 23.8 s). Thực tế **3 giờ 47 phút** —
+transcript cache bỏ ASR khỏi đường đi nên giây/mẫu xuống 18.29 (`asr_seconds` ~5e-06, tức
+bằng 0). Hạn session GPU 9 giờ, thừa thoải mái.
 
 Phóng bằng **Save & Run All (Commit)** để đóng tab không giết kernel.
