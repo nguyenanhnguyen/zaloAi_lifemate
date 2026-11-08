@@ -151,9 +151,43 @@ nf4 + gắn kèm + ngân sách 2000 token.
 11.18 vs 13.41: `--prompt-token-budget 2000` trên laptop 4 GB cắt mất tool cần dùng, và sàn
 2335 token là một app nên không hạ thêm được. Ở đây không có giới hạn đó.
 
-Lượt này **chưa có điểm portal**. Khi có, đây là ba mốc để so: `local_v10` = 11.18 (cùng
-adapter, bị cắt tool), `kaggle_v1` = 13.41 (đủ tool, **không** adapter), `local_v1` = 22.52
-(đường đi khác: llama.cpp CPU + Qwen3.5-4B Q8 + reasoning).
+### ĐIỂM PORTAL: **21.64**
+
+Cao nhất trên pipeline hiện tại, và cao thứ hai của cả dự án.
+
+| | điểm | so với 21.64 | |
+|---|---|---|---|
+| **kaggle_v2 C** | **21.64** | — | fp16 + adapter gộp + đủ 147 tool |
+| `local_v10` | 11.18 | **+10.46 (1.94×)** | cùng adapter, nhưng nf4 + gắn kèm + cắt tool |
+| `kaggle_v1` | 13.41 | **+8.23 (1.61×)** | đủ tool nhưng **không** adapter, có route prompt |
+| `local_v1` | 22.52 | **−0.88** | kỷ lục cũ — đường đi khác: llama.cpp CPU + Qwen3.5-4B Q8 |
+
+Gần gấp đôi bản trước. Hai thứ cùng đóng góp và không tách được từ *riêng* cặp số này
+(`kaggle_v1` khác cả adapter *lẫn* route prompt), nhưng phép A/B ở trên **đã** tách: trên 50
+mẫu held-out ở đủ tool, adapter một mình cho **5.50 vs 0.44**. Nên adapter là phần lớn.
+
+### 28 mẫu thất bại chỉ đáng 1.0 điểm — phần còn lại ở chất lượng
+
+Đây là con số quan trọng hơn 21.64, và nó đổi hướng việc phải làm tiếp.
+
+```
+điểm/mẫu            = 21.64 / 634 = 0.0341   (tổng F1 = 137.2 / 634)
+trần nếu sửa HẾT 28 mẫu thất bại = 22.64     <- vượt local_v1 = 22.52
+  trong đó 17 mẫu step_limit     ≤ 0.61
+  trong đó  7 mẫu 0-call         ≤ 0.24
+```
+
+Tức toàn bộ phần "đường ống" — OOM, quá bước, nộp rỗng — cộng lại đáng **1.0 điểm**. Còn
+**~78 điểm** nằm ở 606 mẫu *chạy xong* mà trung bình mỗi mẫu chỉ ăn **0.0357**.
+
+`done` 530 mẫu (83.6%) nhưng điểm 21.64. Đúng như phần A/B đã cảnh báo: **hoàn thành không
+phải làm đúng.** Mô hình tự tin kết thúc rồi gọi sai tool hoặc sai tham số, và `state_hash`
+chấm all-or-nothing nên lệch một tham số là mất trắng cả mẫu.
+
+Nên việc tiếp theo **không phải** nâng `MAX_STEPS` (≤ 0.61 điểm). Việc tiếp theo là tìm ra
+*sai ở đâu* trên 606 mẫu đó — và chỗ duy nhất đo được việc này là `train`, nơi có gold: chạy
+một lượt held-out rồi so từng `tool_calls` với gold trajectory, phân loại sai tool / sai tham
+số / thiếu call / thừa call. Chưa có bảng phân loại đó thì mọi thay đổi tiếp theo là đoán.
 
 ### Chỗ rò còn lại, đã khoanh được
 
