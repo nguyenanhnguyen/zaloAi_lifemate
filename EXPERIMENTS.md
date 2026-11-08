@@ -1373,3 +1373,66 @@ vẫn báo đang chạy ở độ dài mới. Đã sửa: lọc lại và in ra 
 | Chia nhỏ một phép tính mà không checkpoint | Chia khối hạ đỉnh forward nhưng autograd giữ mọi khối đến backward, tổng không đổi | Chia nhỏ chỉ hạ bộ nhớ khi phần đã chia **được checkpoint**. `chunked_cross_entropy` làm đúng từ đầu; `block_attention_forward` thì không |
 | Để bản vá sau một cờ, rồi bắt cập nhật hai thứ cho khớp | Một lượt chạy lại **y nguyên** lỗi OOM cũ vì notebook còn bản cũ nên không truyền `--block-checkpoint` | Bản vá nằm sau một cờ là bản vá không được bật. Mặc định phải là cấu hình đúng; cờ chỉ để **tắt** |
 | Cache tắt ngang một tham số mà không nói | `build()` trả cache nguyên xi, nên `--max-seq-len` thấp hơn bị bỏ qua không một dòng log | Cache phải áp lại mọi điều kiện mà khoá cache không chứa, hoặc khoá cache phải chứa chúng |
+
+---
+
+## Phân lớp lỗi trên 50 mẫu, bằng số thay vì soi tay (2026-11-08)
+
+Trước đây mỗi lượt chạy trả về **đúng một số** (`local_train_score`). Một con số không nói
+được nên sửa gì, mà lượt Kaggle tốn 30 phút đến 4 giờ. Công cụ mới
+`scripts/diag/error_classes.py` biến một file submission **đã có** thành bảng phân lớp —
+không chạy lại model, không GPU, vài giây.
+
+Bốn lớp cộng lại bằng toàn bộ gold call. Đo trên `results/local_v9/lora_ask1.jsonl` (adapter,
+50 mẫu held-out):
+
+| lớp | call | % gold | nghĩa |
+|---|---|---|---|
+| `exact` | 21 | **12.4%** | recall thực — ăn điểm |
+| `args_wrong` | 22 | 13.0% | đúng tool, sai tham số |
+| `missing` | 126 | **74.6%** | bỏ sót hẳn |
+| `extra` | 68 | 61.3% của pred | gọi lãng phí |
+
+### Bốn điều mới, và cả bốn đều đo được chứ không suy
+
+**1. Tập đo đang lệch phân phối 1.47× — mọi số held-out đã đo đều bị méo.**
+Gold của 50 mẫu held-out là **3.38 call/mẫu**, còn cả 1545 mẫu `train` là **2.29**. Tập
+held-out nặng hơn thật. Nghĩa là `kaggle_v2` A = 5.50 trên held-out và C = **21.64** trên
+`public_test` **không mâu thuẫn** — con số held-out là *bi quan có hệ thống*. Kết luận cũ
+"5.50 vẫn là một con số tồi" đọc sai thước đo, không đọc sai model. Script giờ tự in cảnh báo
+này mỗi lần tập đo lệch quá 0.3 call/mẫu.
+
+**2. `sys.ask_missing_info` là 33/111 = 30% của TẤT CẢ call ta nộp.**
+Gold muốn nó ở 60/1545 mẫu (3.9%). Đây là khoản lãng phí lớn nhất và nó lãng phí hai lần: tốn
+một lượt LLM trong trần `MAX_STEPS=8`, và làm `state_hash` lệch. `local_v8` đã thấy base hỏi
+sai ở 91% mẫu; adapter **không** sửa được việc này.
+
+**3. Không phải "dừng sớm" — chỉ 3/50 mẫu là tiền tố ĐÚNG của gold rồi dừng.**
+47 mẫu còn lại gọi *sai thứ*, không gọi *thiếu thứ*. Nên nâng `MAX_STEPS` không nhắm vào đâu cả.
+
+**4. Tool bị bỏ sót nhiều nhất đều là bước TRA CỨU, không phải bước hành động.**
+
+```
+18  contacts.search          11  calendar.list_events
+11  bill_payment.list_bills   5  banking.list_beneficiaries
+```
+
+Đây chính là thứ đã soi tay thấy ở `train_0354` (WER 0,00 mà 0 điểm: *"không tra referent,
+nhét nguyên lời người dùng vào slot"*) — nhưng giờ là **con số trên 50 mẫu**, không phải một
+mẫu. Gold theo khuôn **tra cứu → hành động bằng ID trả về**; ta bỏ bước tra rồi tự điền ID.
+Và nó giải thích luôn `args_wrong` 13%: `smart_home.get_status` 6, `smart_home.light_set` 6,
+`ride_hailing.book` 3 — tự bịa `device_id` / `event_id`.
+
+### Ba việc này nhắm đúng chỗ, theo đúng thứ tự giá trị
+
+Dựa trên bảng trên, **không** phải trên cảm tính:
+
+1. **Chặn `ask_missing_info` khi chưa đọc gì** — nhắm 33 call lãng phí (30% khối lượng). Rẻ
+   nhất: một luật, không cần huấn luyện lại.
+2. **Bắt tra cứu trước khi điền ID** — nhắm 126 `missing` + 22 `args_wrong`. Đây là khối lớn
+   nhất. Có thể làm bằng `SYSTEM_PROMPT` + màng chắn (từ chối call có ID chưa từng xuất hiện
+   trong kết quả tool nào trước đó), hoặc bằng dữ liệu SFT nhấn vào khuôn hai bước.
+3. **Đo lại trên tập KHÔNG lệch phân phối** — lấy mẫu phân tầng theo số gold call thay vì lấy
+   nguyên `sft.eval.jsonl`. Không làm việc này thì mọi A/B sau vẫn đo bằng thước méo.
+
+`MAX_STEPS` nằm cuối hàng: 17 mẫu `step_limit` của `kaggle_v2` C đáng **tối đa 0.61 điểm**.
