@@ -22,10 +22,19 @@ chiều xấu, nhỏ nhưng đo được.
 | call nộp | 1671 = 2.64/mẫu (gold train 2.29) |
 | mẫu nộp rỗng | 10 |
 
-`failed` == `step_limit` + `repeated_invalid` chính xác, nên nhãn `failed` ở đây là **nhãn
-của ta**, không phải phán quyết của BTC. Và vì portal chấm `submission.jsonl` chứ không
-chạy lại code, **96 mẫu quá 30 giây KHÔNG bị trừ ở con số 21.25**. Chúng là khoản lỗ của
-vòng Docker trên A30, chưa phải khoản lỗ hôm nay.
+`failed` == `step_limit` + `repeated_invalid` chính xác. Nhãn `failed` ở đây là **nhãn của
+ta** (`sample_failed` coi mọi `reason` ngoài `done`/`asked_missing` là hỏng), không phải
+phán quyết của BTC — portal chấm `submission.jsonl` và nó không chạy lại code ta.
+
+**Nên 96 mẫu quá 30 giây KHÔNG bị trừ ở con số 21.25, và chúng cũng không phải khoản lỗ
+đang chờ.** Màng chắn `[8]` ghi rõ: `deadline: T4/P100 600.0s | A30 28.0s`. Lượt này cố ý
+chạy ngân sách 600 s để *đo* phân phối thời gian; vòng Docker dùng 28 s, và cơ chế cắt đã
+có sẵn — `BudgetExceeded` → `reason='time_limit'`, **vẫn ghi call và `state_hash` thật**.
+Tức trên A30 những mẫu đó bị cắt ngắn và ăn điểm một phần, không thành 0.
+
+Rủi ro còn lại ở đó là *chất lượng bị cắt*, không phải *điểm bị xoá*: mẫu nào hôm nay cần
+8 lượt thì trên A30 chỉ được chạy tới khi hết 28 s. A30 nhanh hơn T4 nên phần lớn sẽ đủ,
+nhưng **con số đó chưa ai đo**.
 
 ## Hai gate: cơ chế chạy đúng, hiệu quả âm
 
