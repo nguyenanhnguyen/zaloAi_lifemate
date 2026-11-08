@@ -1436,3 +1436,103 @@ Dựa trên bảng trên, **không** phải trên cảm tính:
    nguyên `sft.eval.jsonl`. Không làm việc này thì mọi A/B sau vẫn đo bằng thước méo.
 
 `MAX_STEPS` nằm cuối hàng: 17 mẫu `step_limit` của `kaggle_v2` C đáng **tối đa 0.61 điểm**.
+
+## 2026-11-08 — Bốn phép đo đổi hướng v3, không lượt GPU nào
+
+Tất cả từ file đã có trên đĩa: submission cũ + nhãn gold. Không chạy lại model.
+
+### 1. `lora_V4` mua TỐC ĐỘ, không mua ĐỘ ĐÚNG
+
+`scripts/diag/error_classes.py` trên **cùng 50 mẫu held-out**:
+
+| lượt | cấu hình | `exact` (recall) | điểm |
+|---|---|---|---|
+| `local_v5` | base, 4-bit, ctx 10240, không chặn prompt | 32 (18.9%) | 3.90 |
+| `local_v6` | + màng chắn x-ref | **34 (20.1%)** | 3.90 |
+| `local_v7` base | base + `--prompt-token-budget 2000` | 20 (11.8%) | 2.57 |
+| `local_v7` lora | + `lora_V4` | **19 (11.2%)** | 4.00 |
+
+Adapter cho recall **19 so với 20** của chính base cùng cấu hình: trong sai số, không cải
+thiện. Và cả hai đều thấp hơn `local_v6` (34) vì ngân sách prompt 2000 — thứ mà
+[memory `prompt-budget-khong-chan-tong-prompt`] đã ghi là **không** chặn được OOM.
+
+Vậy 12.4× của phép A/B `kaggle_v2` (5.50 vs 0.44) là gì? Arm base có **26/50 mẫu quá 30 giây
+và 3 mẫu fail** — hơn một nửa bị **xoá điểm vì CHẬM, không vì SAI**. Adapter chỉ 9/50. Phép
+A/B đó đo tốc độ và gọi nó là chất lượng.
+
+**Đã sửa trong v3:** mỗi lượt trả về `local_train_score` (luật thi) **và**
+`local_train_score_untimed` (không trần 30 giây). Hiệu hai số là giá của tốc độ, tách khỏi giá
+của sai.
+
+### 2. `lora_V4` được huấn luyện trên 26% dữ liệu, và thiếu học nặng
+
+| | |
+|---|---|
+| hội thoại dùng | **320 / 1233** |
+| epoch | 1 |
+| token được giám sát | **~25.000** |
+| tham số huấn luyện | **66.060.288** (r=32) |
+
+25k token tín hiệu cho 66M tham số. Đây không phải adapter tệ, đây là adapter **chưa được
+huấn luyện**. Toàn bộ dữ liệu × 2 epoch = 192k token, gấp **7,7×**.
+
+### 3. 77% mỗi chuỗi huấn luyện là schema tool — và không nén được
+
+Đếm ký tự theo vai trên `sft.train.jsonl` (1233 hội thoại):
+
+| phần | ký tự/mẫu | % |
+|---|---|---|
+| **schema tool** | 13.405 | **77,2%** |
+| yêu cầu người dùng | 1.601 | 9,2% |
+| system prompt | 1.556 | 9,0% |
+| kết quả tool | 558 | 3,2% |
+| **assistant (phần được giám sát)** | 250 | **1,4%** |
+
+Tôi vào đây để tìm chỗ cắt, vì chi phí attention tỉ lệ L². Nhưng schema đã gọn: **32 tool/mẫu
+× 368 ký tự/tool**, và mỗi tool chỉ là tên + một câu mô tả + kiểu đối số. Không có chỗ cắt mà
+không mất thông tin model cần để biết tên đối số.
+
+Và `route_recall` đã đóng cửa lối khác: cho sẵn 10 tool đúng chỉ đủ cho 46,7% mẫu, vì tool cần
+được phát hiện **giữa** quỹ đạo. Nên **trần 320 mẫu là trần tốc độ thật**, không phải thiếu tối
+ưu. Muốn toàn bộ dữ liệu thì phải nhiều phiên, không phải prompt ngắn hơn.
+
+### 4. Thêm một đối số lọc tuỳ chọn là mất CẢ call — và ta đang làm thế
+
+`match()` đòi `set(arguments)` khớp **chính xác**. Gold gọi các tool liệt kê **trống**:
+
+| tool | gold gọi | % không đối số |
+|---|---|---|
+| `bill_payment.list_bills` | 86 | **100%** |
+| `chat_ott.list_chats` | 83 | **100%** |
+| `banking.get_balance` | 49 | **100%** |
+| `smart_home.get_status` | 94 | 86,2% |
+| `calendar.list_events` | 83 | 81,9% |
+
+Còn `scripts/diag/argfmt.py` trên 100 mẫu `local_v4` đếm ta **thêm vào**:
+`smart_home.get_status.type` ×15, `bill_payment.list_bills.type` ×9, `.room` ×8.
+
+Đo thử: allowlist dựng **chỉ từ 1284 mẫu không held-out** (nên không rò rỉ), áp lên các lượt
+đã có, **chỉ tính mẫu held-out**:
+
+| lượt | `exact` hiện tại | sau khi bỏ lọc |
+|---|---|---|
+| `local_v6` | 34/169 | **51/169** |
+| `local_v7` base | 20/169 | **30/169** |
+| `local_v7` lora | 19/169 | **25/169** |
+
+Không mẫu held-out nào bị hại. Trên cả 1545 mẫu: 33/682 gold call thuộc allowlist **có** đối
+số (4,8%), và **32/33 nằm ở đúng hai tool** dưới 95% — nên cờ có mức `safe` (9 tool) và `all`
+(11 tool).
+
+**Phải đọc kèm, nếu không sẽ mừng hụt:** `state_hash` lệch ở **47/50** mẫu `local_v6`, và lệch
+hash thì **0 điểm bất kể call nào đúng**. Nên gate này chỉ ăn điểm ở mẫu **đã** khớp state —
+đáng kể trên `public_test` (21.64, nhiều mẫu khớp), gần như không trên 50 mẫu train (3.90).
+Recall **không** phải ràng buộc đang chặn; nó là ràng buộc đang chặn *sau khi* state khớp.
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| `verify_notebook.py` ghim cứng `lifemate_kaggle_v2.ipynb` và bỏ qua `argv` | Mọi lần chạy `verify_notebook.py notebook/lifemate_kaggle_v3.ipynb` là **kiểm v2 rồi báo "TẤT CẢ ĐẠT" cho v3**. Một cell v3 có f-string không đóng đã đi qua phép kiểm này | Phép kiểm không đọc đối tượng được giao thì **tệ hơn là không có**: nó phát ra sự tự tin sai. In ra đường dẫn thật sự đang kiểm |
+| Đọc 12.4× của A/B adapter là chất lượng | Arm base mất 26/50 mẫu vì quá 30 giây. Hai nguyên nhân mất điểm khác nhau bị gộp vào một con số | Điểm có hình phạt thời gian thì phải báo **hai** số. Gộp lại là tự bỏ thông tin |
+| Đo adapter bằng điểm, không bằng recall | Điểm 4.00 > 2.57 làm tôi kết luận adapter tốt hơn, trong khi `exact` là 19 so với 20 | Điểm all-or-nothing không phân giải được. Phải đo thêm lớp lỗi |

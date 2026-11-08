@@ -252,10 +252,15 @@ lỗi môi trường Python khác nhau**, cả hai đều ở phía phiên bản
 
 ---
 
-# kaggle_v3 — chạy thuần, và mỗi lượt trả về bốn số thay vì một
+# kaggle_v3 — chạy thuần, và mỗi lượt trả về một bảng thay vì một số
 
-`lifemate_kaggle_v3.ipynb` (21 cell, cùng số cell với v2). Bốn thay đổi, **mỗi cái nhắm một
-thứ đã đo được**, không cái nào là dọn dẹp cho đẹp.
+`lifemate_kaggle_v3.ipynb` (21 cell, cùng số cell với v2). **Sáu** thay đổi, mỗi cái nhắm một
+thứ đã đo được; không cái nào là dọn dẹp cho đẹp.
+
+Hai cái cuối (`BARE_READ_GATE`, hai con số điểm) đến từ bốn phép đo ngày 08/11 làm **không
+lượt GPU nào** — chỉ submission đã có trên đĩa đối chiếu nhãn gold. Chúng đổi hướng việc phải
+làm: `lora_V4` mua tốc độ chứ không mua độ đúng, và ta đang giết call bằng chính đối số mình
+thêm vào. Chi tiết ở [`EXPERIMENTS.md`](../EXPERIMENTS.md).
 
 ## 1. Từ 4 dataset về 2 — và bỏ luôn một chế độ thất bại
 
@@ -362,20 +367,112 @@ submission **đã có** — không GPU, vài giây.
 
 Dòng `sys.ask_missing_info` ở phần THỪA là thước đo trực tiếp của thay đổi số 3.
 
+## 5. `BARE_READ_GATE` — thêm một đối số lọc là mất CẢ call
+
+`match()` trong `train_score` đòi `set(arguments)` khớp **chính xác**. Nên một đối số lọc tuỳ
+chọn thừa không làm call sai *một phần* — nó làm call chết hẳn.
+
+Gold gọi các tool liệt kê **trống**, đo trên 1284 mẫu không held-out:
+
+| tool | gold gọi | % không đối số |
+|---|---|---|
+| `bill_payment.list_bills` | 86 | **100%** |
+| `chat_ott.list_chats` | 83 | **100%** |
+| `banking.get_balance` | 49 | **100%** |
+| `smart_home.get_status` | 94 | 86,2% |
+| `calendar.list_events` | 83 | 81,9% |
+
+Và `scripts/diag/argfmt.py` đếm ta **thêm vào**: `smart_home.get_status.type` ×15,
+`bill_payment.list_bills.type` ×9, `.room` ×8.
+
+Đo thử trên các lượt đã có, allowlist dựng **chỉ từ mẫu không held-out**, chấm **chỉ trên mẫu
+held-out** (nên không rò rỉ theo cả hai chiều):
+
+| lượt | `exact` hiện tại | sau khi bỏ lọc |
+|---|---|---|
+| `local_v6` | 34/169 | **51/169** |
+| `local_v7` base | 20/169 | **30/169** |
+| `local_v7` `lora_V4` | 19/169 | **25/169** |
+
+Không mẫu held-out nào bị hại. Trên cả 1545 mẫu, 33/682 gold call thuộc allowlist **có** đối
+số (4,8%) và **32/33 nằm ở đúng hai tool** dưới 95%, nên:
+
+```python
+BARE_READ_GATE = 'all'   # 'off' | 'safe' (9 tool >=95%) | 'all' (11 tool >=80%)
+```
+
+Bỏ **trước** khi `env.validate` và trước khi gọi env — mọi call thực hiện trên `ToolEnv` đều
+xuất hiện trong bài nộp, nên sửa sau khi gọi là không sửa được gì. Mỗi lần bỏ ghi một event
+`bare_read_strip`, nên đếm được nó có bắn không.
+
+> **Phải đọc kèm, không thì mừng hụt.** `state_hash` lệch ở **47/50** mẫu `local_v6`, và lệch
+> hash thì **0 điểm bất kể call nào đúng**. Gate này chỉ ăn điểm ở mẫu **đã** khớp state. Trên
+> `public_test` (21.64) thì đáng kể; trên 50 mẫu train (3.90) thì gần như không. Recall không
+> phải ràng buộc đang chặn — nó là ràng buộc *sau khi* state đã khớp.
+
+## 6. Hai con số điểm, không một
+
+Phép A/B adapter ở `kaggle_v2` cho 5.50 vs 0.44 = 12.4×. Nhưng arm base có **26/50 mẫu quá 30
+giây và 3 mẫu fail**: hơn một nửa bị xoá điểm vì **CHẬM**, không vì **SAI**. Còn `exact` recall
+đo trên cùng 50 mẫu laptop là **19 (adapter) so với 20 (base)** — trong sai số.
+
+Nên mỗi lượt v3 in:
+
+```
+PREFLIGHT TRAIN SCORE = ...   (luat thi, co xoa diem mau >=30s)
+          CHAT LUONG THUAN = ...   (khong tran 30 giay)
+          GIA CUA TRAN 30 GIAY = ... diem
+```
+
+Hiệu hai số là chỗ tốc độ sửa được, tách khỏi chỗ phải sửa bằng chất lượng. Gộp chung vào một
+con số là tự bỏ thông tin — và đó đúng là cái đã làm phép A/B `kaggle_v2` không đọc được.
+
 ## Kế hoạch chạy v3
 
-Hai lượt, khác nhau **đúng một cờ**, mỗi lượt ~35 phút (không còn transcript cache):
+Mỗi lượt `train` ~35 phút (không còn transcript cache), khác nhau **đúng một cờ**:
 
-| | `SPLIT` | `RUN_FULL` | `ASK_REQUIRE_READ` |
+| | `ASK_REQUIRE_READ` | `BARE_READ_GATE` | trả lời câu gì |
 |---|---|---|---|
-| **D** | `train` | `False` | `True` |
-| **E** | `train` | `False` | `False` |
+| **E** (baseline) | `False` | `'off'` | mốc đúng cho v3 |
+| **D** | `True` | `'off'` | ask-gate ăn không |
+| **G** | `False` | `'all'` | bare-read ăn không |
+| **H** | cờ thắng của D/E | cờ thắng của E/G | hai cái có cộng dồn |
 
-D − E là phán quyết về ask-gate. Mốc `kaggle_v2` A = **5.50** đo trên tập lệch 1.244× nên
-**không so trực tiếp được** — E là baseline đúng cho v3.
+Tất cả `SPLIT='train'`, `RUN_FULL=False`. **E trước**, vì `kaggle_v2` A = 5.50 đo trên tập lệch
+1,244× nên **không** so trực tiếp được.
 
-Rồi lượt F: cờ thắng, `SPLIT='public_test'`, `RUN_FULL=True`, ~4.7 giờ (634 × 23.8 s + nạp
-model), phóng bằng **Save & Run All (Commit)**.
+Rồi lượt F: cờ thắng, `SPLIT='public_test'`, `RUN_FULL=True`, ~4,7 giờ, **Save & Run All
+(Commit)**.
+
+Đọc gì ở mỗi lượt, theo thứ tự: `khop 261 mau` ở màng chắn `[5]` → `lech 0.99x` ở dòng `Tap
+do` → `CHAT LUONG THUAN` → bảng `PHAN LOP LOI`.
+
+## `lora_V5` — adapter tiếp theo, và vì sao không phải "huấn luyện thêm"
+
+`lora_V4` **chưa được huấn luyện**, chứ không phải huấn luyện tệ:
+
+| | `lora_V4` | `lora_V5` đề xuất |
+|---|---|---|
+| hội thoại | **320 / 1233** | **1233** |
+| epoch | 1 | 2 |
+| token được giám sát | ~25.000 | **192.000** |
+| `--lora-r` | 32 → 66,1M tham số | **8** → 16,5M |
+| thời gian | 9 giờ | ~35 giờ = **4 phiên `--resume`** |
+
+25k token tín hiệu cho 66M tham số là thiếu học nặng. Hạ `r` xuống 8 làm tỉ lệ
+tham số/token tốt hơn **4×**, chạy nhanh hơn, adapter nhỏ hơn — và README của `finetune/` đã
+tự viết đúng luật này: *"nếu eval loss còn giảm đều ở cuối epoch 2 thì tăng `--epochs`, đừng
+tăng `--lora-r`"*.
+
+Không có đường tắt về tốc độ. Đã kiểm: 77% mỗi chuỗi là schema tool (13.405 ký tự/mẫu), nhưng
+schema đã gọn — 32 tool × 368 ký tự, mỗi tool là tên + một câu + kiểu đối số. Còn
+`route_recall` đã đóng lối cắt bớt tool: cho sẵn 10 tool đúng chỉ đủ 46,7% mẫu, vì tool cần
+được phát hiện **giữa** quỹ đạo. Nên trần 320 mẫu là trần **tốc độ thật**, và lối ra là nhiều
+phiên, không phải prompt ngắn hơn.
+
+`--save-steps 10` và `--resume` đã có và đã sống qua một lượt chết ở bước 46/80. Phiên 1 phải
+dừng lại đọc eval loss trước khi tiêu ba phiên còn lại: nếu nó không giảm thì vấn đề là dữ
+liệu, không phải lượng dữ liệu.
 
 ## Những gì v3 KHÔNG sửa
 
