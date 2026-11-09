@@ -1566,3 +1566,78 @@ trong metrics là nhãn của ta, không phải phán quyết của BTC.
 | chặn một call sai chỗ tưởng là bỏ được nó | gate chỉ đẩy lùi `ask`, và lần đẩy lùi tốn một lượt lẫn vài giây |
 | tưởng trần 30 giây đang trừ điểm portal | portal chấm file; trần chỉ bắn ở vòng Docker |
 
+## 2026-11-09 — Đánh giá lại toàn bộ, và pipeline tốt nhất luận ra được
+
+Không lượt GPU nào. Đọc lại mọi phép đo đã có và sửa trực tiếp trên v3.
+
+### 22.52 không phải mục tiêu — nó là một phép đo khác loại
+
+`local_v1` = **Qwen3.5-4B Q8 qua llama.cpp CPU, 50–471 giây/mẫu**, nguyên catalogue, bật
+reasoning. Nó **phạm luật 30 giây rất xa**, nên 22.52 không phải một cấu hình ta có thể
+quay về. Nó chỉ nói: *chất lượng tool-calling đạt được khi không bị bóp thời gian*.
+
+Và khoảng cách tới nó chỉ **0.88 điểm** (21.64). Tức hai đường đi rất khác nhau — một
+model khác, một runtime khác, nhanh gấp ~20 lần — vẫn hạ cánh cùng vùng 21–22. **Trần là
+cách tiếp cận, không phải cấu hình.** Mọi lần tinh chỉnh ±0.4 đều đang gõ vào trần đó.
+
+### Chỗ mất điểm thật, đã đo từ 04/11 mà chưa ai nhắm vào
+
+`local_v5` (50 mẫu held-out **có nhãn**, catalogue đầy đủ): 47/50 ăn 0, **cả 47 đều vì
+`state_hash` lệch**. Phân lớp: `ghi sai` **58%**, `KHÔNG ghi` 16%, `ghi thiếu` 16%.
+
+Nguyên nhân `ghi sai` đã được định lượng: **model bịa quy ước đặt tên ID.**
+
+| bịa | thật |
+|---|---|
+| `cont_002` | `c_04` |
+| `contact_01` | `c_03` |
+| `ct_001` | `c_01` |
+| `bill_001` | `bill_01` |
+| `light_bedroom` | `light_bedroom2` |
+
+11/31 lệnh `x-ref` đúng tool nhưng **sai hoàn toàn ID** (35%).
+
+**Và dòng quyết định hướng sửa:** trong 48 lệnh có tham số `x-ref`, số lệnh thiếu một lệnh
+**đọc** đi trước là **0 (0%)**. Model *đã luôn* đọc trước khi ghi rồi vẫn bịa. Nên màng chắn
+cũ bảo nó "hãy gọi tool đọc để lấy ID thật" là **bảo một việc nó vừa làm xong**.
+
+### Sửa trên v3: đưa ID thật vào tận mắt model
+
+- `harvest_ids()` thu riêng một tập ID từ **giá trị** chuỗi khớp trọn vẹn dạng ID trong
+  `data` và trong **từng kết quả tool** — không nhận khoá, vì `state_hash`/`tool_calls`
+  cũng khớp regex và một gợi ý chứa tên khoá thì vô dụng.
+- Khi bắt được ID bịa, thông báo lỗi **liệt kê ID thật**, ưu tiên ID cùng tiền tố với cái
+  model vừa bịa (nó bịa `cont_002` khi thật là `c_04`, nên `c_*` phải đứng trước mặt).
+- `ID_SHAPE` thành **một** biểu thức dùng ở cả hai chỗ, không hai bản chép tay.
+- Đo được: `invented_id_rejections`, `invented_id_samples`, `invented_id_then_wrote`
+  (mẫu bị bắt **mà sau đó vẫn ghi được** — thiếu cột này thì "bắt 40 lần" không phân biệt
+  được với "chặn 40 lần rồi model bỏ cuộc"), và chính các ID bị bắt.
+
+**Regex đã hiệu chỉnh trên gold trước khi chạy:** trên 3000 đối số chuỗi ngắn của 1545 mẫu,
+nó khớp **1325 (44.2%)**, và khớp đúng loại — bắt `acc_01`, `c_01`, `evt_01`,
+`light_bedroom2`; **không** bắt `off`, `on`, `car4`, `cool`, `Lan`, `sms.send`, `VND`.
+
+**Giới hạn của phép đo này, nói thẳng:** không kiểm được offline rằng gợi ý *chứa* ID đúng,
+vì ID đúng nằm trong kết quả tool mà chỉ `ToolEnv` sinh ra lúc chạy. Cái đã kiểm được là
+regex bắt đúng loại giá trị và nguồn thu hoạch là kết quả tool thật.
+
+### Pipeline tốt nhất luận ra được
+
+| | chọn | vì |
+|---|---|---|
+| ASR | PhoWhisper-large greedy + normalizer số | WER 28.9% là chặn trên, **chưa** phải nghẽn (`train_0354` WER 0.00 vẫn 0 điểm) |
+| LLM | Qwen3-4B-Instruct-2507 **fp16** | dưới trần 6B, license OK |
+| adapter | `lora_V4` **gộp** | mua **1.40× tốc độ**, **không** mua độ đúng (exact 19 vs base 20) — và tốc độ *là* điểm ở vòng Docker |
+| prompt | **nguyên catalogue**, không cắt | cắt prompt kéo 22.52 → 5.50; và `KHÔNG ghi` sụp 48% → 16% khi cho đủ catalogue |
+| ask-gate | **TẮT** | chi phí đo được −1.3, khoản thu không đo được |
+| bare-read | **`'safe'`** | mức `'all'` strip 56 call trên 2 tool mà 14–18% gold *có* đối số |
+| **màng chắn ID + gợi ý** | **BẬT** | nhắm đúng 58% `ghi sai`, khối lớn nhất |
+| hạn giờ | 28 s (A30) / 600 s (T4 chẩn đoán) | cắt rồi vẫn ghi call + hash thật |
+
+### Thêm vào bảng bài học
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Coi kỷ lục là mục tiêu mà không đọc nó ra từ đâu | 22.52 là llama.cpp CPU 50–471 s/mẫu, phạm luật 30 giây; tôi đã mấy lượt đo khoảng cách tới một con số không thể quay về | Mỗi mốc phải mang theo cấu hình của nó. Mốc phạm luật là chặn trên về chất lượng, không phải đích |
+| Chặn một hành vi sai mà không đưa hành vi đúng ra | Màng chắn ID cũ bảo model "gọi tool đọc", trong khi đo được 0% lệnh `x-ref` thiếu lệnh đọc — nó đã đọc rồi | Chặn chỉ có giá khi kèm cái đúng. Trước khi viết thông báo lỗi, đo xem model có đang thiếu đúng thứ ta sắp nhắc không |
+
