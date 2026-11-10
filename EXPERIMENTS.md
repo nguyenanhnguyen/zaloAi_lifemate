@@ -1641,3 +1641,30 @@ regex bắt đúng loại giá trị và nguồn thu hoạch là kết quả too
 | Coi kỷ lục là mục tiêu mà không đọc nó ra từ đâu | 22.52 là llama.cpp CPU 50–471 s/mẫu, phạm luật 30 giây; tôi đã mấy lượt đo khoảng cách tới một con số không thể quay về | Mỗi mốc phải mang theo cấu hình của nó. Mốc phạm luật là chặn trên về chất lượng, không phải đích |
 | Chặn một hành vi sai mà không đưa hành vi đúng ra | Màng chắn ID cũ bảo model "gọi tool đọc", trong khi đo được 0% lệnh `x-ref` thiếu lệnh đọc — nó đã đọc rồi | Chặn chỉ có giá khi kèm cái đúng. Trước khi viết thông báo lỗi, đo xem model có đang thiếu đúng thứ ta sắp nhắc không |
 
+### 10/11 — ID_SNAP: sửa tại chỗ khi lựa chọn là duy nhất
+
+Bản mạnh hơn của chính màng chắn ID. Từ chối một call tốn **một lượt** trong trần
+`MAX_STEPS=8` cộng vài giây, và model có thể không phục hồi: `kaggle_v3` có 13 mẫu
+`repeated_invalid` + 15 mẫu `step_limit`. Khi tập ID thật chỉ còn **đúng một** ứng viên cùng
+họ với cái model vừa bịa thì không có gì phải hỏi — sửa rồi chạy tiếp.
+
+| model bịa | ứng viên | xử lý |
+|---|---|---|
+| `bill_001` | `bill_01` | **sửa** |
+| `light_bedroom` | `light_bedroom2` | **sửa** |
+| `cont_002` | `c_01`, `c_04` | **không sửa**, hỏi lại kèm cả hai |
+
+Mơ hồ thì không sửa: ghi tự tin vào thực thể sai còn tệ hơn, và từ chối thì model còn cơ hội
+đọc thêm. Thiết kế **suy biến về hành vi cũ**, không bao giờ về cái tệ hơn.
+
+**Đo trên gold trước khi chạy:** 851 mẫu có ID, 1121 họ ID (theo tiền tố) —
+**983 (87.7%) là họ một thành viên**, 138 (12.3%) mơ hồ (133 họ cỡ 2, 5 họ cỡ 3).
+
+**Đây là trần trên, không phải tỉ lệ thật.** Phép đo lấy ID từ *lệnh gold*, còn `seen_ids`
+lúc chạy thu từ *kết quả tool* — một `contacts.search` liệt kê nhiều liên hệ hơn số gold
+dùng, nên `c_*` sẽ đông hơn và phép sửa bắn ít hơn 87.7%. Hướng lệch là hướng an toàn.
+
+| Sai ở đâu | Chuyện gì xảy ra | Rút ra |
+|---|---|---|
+| Tin phép kiểm cú pháp cho một heuristic | Phép ưu tiên tiền tố cắt cứng 2 ký tự trả về **rỗng** ở đúng ca nó được thiết kế cho (`cont_002` → `co`, mà `c_01` không bắt đầu bằng `co`); cú pháp sạch, logic vô dụng | Chạy **một bước thật** trên dữ liệu có hình dạng thật, kể cả khi thay đổi chỉ là một biểu thức |
+
