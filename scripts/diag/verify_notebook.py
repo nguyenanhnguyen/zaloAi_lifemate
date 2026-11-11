@@ -35,7 +35,10 @@ need = {
     # khong con ton tai -- phep kiem bao FAIL tren CA HAI notebook dang dung duoc. Mot phep
     # kiem luon do la mot phep kiem bi bo qua, nen no ghim vao cai thuc su phai co: co bat/tat
     # va nhanh gan None khi tat.
-    "USE_ADAPTER = True": "co bat/tat adapter",
+    # Ghim literal `USE_ADAPTER = True` la lap lai dung cai benh da sua o dong 10: v4 dat
+    # False (lora_V4 khong nap duoc len Qwen3.5) va phep kiem bao FAIL cho mot notebook DUNG.
+    # Nen kiem CAI CONG TAC co ton tai, khong kiem GIA TRI cua no.
+    "USE_ADAPTER = ": "co bat/tat adapter",
     "if (USE_ADAPTER and _ads) else None": "adapter ve None khi tat hoac khong tim thay",
     "NORMALISE_NUMBERS = True": "config normalizer",
     "'peft>=0.14'": "cài peft khi có adapter",
@@ -132,6 +135,36 @@ else:
             print(f"FAIL mức 'safe' lệch so với ngưỡng >=95%: "
                   f"{sorted(set(_safe_ns['BARE_READ_TOOLS']) ^ _allow(0.95))}")
             fail += 1
+
+# 4c) rieng cho notebook dung model tron attention (Qwen3.5): phan crop KV-cache chi dung voi
+# full attention, nen neu doi sang qwen3_5 thi tai dung cache BAT BUOC phai tat.
+if "Qwen/Qwen3.5" in whole:
+    for token, what in {
+        "REUSE_KV_CACHE = False": "qwen3_5: tai dung KV cache phai TAT",
+        "USE_ADAPTER = False": "qwen3_5: adapter Instruct khong nap duoc, phai TAT",
+        "if REUSE_KV_CACHE and self.cache is not None:": "doc cache co gan co",
+        "output.past_key_values if REUSE_KV_CACHE else None": "ghi cache co gan co",
+        "AutoModelForImageTextToText": "co lop nap cho kien truc ConditionalGeneration",
+        "ENABLE_THINKING = True": "qwen3_5: bat suy luan ngan (thanh phan cua ban 22.52)",
+    }.items():
+        if token in whole:
+            print(f"OK   {what}")
+        else:
+            print(f"FAIL thiếu: {what}  ({token})")
+            fail += 1
+    # tran tham so phai la ASSERT, khong phai log: vuot 6B la bi loai
+    if "< 5_000_000_000" in whole and "< 6_000_000_000" in whole:
+        print("OK   assert tran tham so 5B/6B con nguyen")
+    else:
+        print("FAIL mat assert tran tham so 5B/6B")
+        fail += 1
+    # Phai ghim dong GAN, khong phai chuoi "PhoWhisper-large" o bat ky dau: chinh phan comment
+    # giai thich phep tinh 6.203B co chua ten do, va bat vao comment la bao FAIL cho ban DUNG.
+    if "ASR_ID = 'vinai/PhoWhisper-large'" in whole:
+        print("FAIL Qwen3.5 + PhoWhisper-large = 6.203B > 6B (phai dung medium hoac nho hon)")
+        fail += 1
+    else:
+        print("OK   khong dung PhoWhisper-large cung Qwen3.5 (ngan sach 6B)")
 
 # 5) tên dùng trước khi gán — lớp lỗi chỉ lộ ra sau khi đã tải 13 GiB model trên Kaggle
 import subprocess  # noqa: E402

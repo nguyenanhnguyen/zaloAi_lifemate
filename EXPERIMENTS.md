@@ -1668,3 +1668,103 @@ dùng, nên `c_*` sẽ đông hơn và phép sửa bắn ít hơn 87.7%. Hướn
 |---|---|---|
 | Tin phép kiểm cú pháp cho một heuristic | Phép ưu tiên tiền tố cắt cứng 2 ký tự trả về **rỗng** ở đúng ca nó được thiết kế cho (`cont_002` → `co`, mà `c_01` không bắt đầu bằng `co`); cú pháp sạch, logic vô dụng | Chạy **một bước thật** trên dữ liệu có hình dạng thật, kể cả khi thay đổi chỉ là một biểu thức |
 
+---
+
+## 2026-11-11 — Ba giả thuyết bị phép đo đóng lại, và lượt chốt là đổi MODEL
+
+Mọi phép đo dưới đây chạy ngoại tuyến, không GPU, qua `zaic_tools` (không đọc `*_environment/`).
+
+### 1. "Model bịa quy ước đặt tên ID" — SAI trên hệ hiện tại
+
+Phát lại bài nộp thật `results/kaggle_v3_fix/submission.jsonl` trên `ToolEnv`, đối chiếu từng
+đối số có `x-ref` với tập thực thể thật của môi trường:
+
+| | |
+|---|---|
+| đối số `x-ref` đã nộp | 583 |
+| ID **tồn tại thật** | 343 |
+| ID **không tồn tại** | **3 (0.5%)** |
+| mẫu bị ảnh hưởng | 3 / 634 |
+
+Con số 58% `ghi sai` đến từ `local_v5` — lượt chỉ **3.90 điểm**. Adapter + catalogue đầy đủ đã
+dọn nó từ lâu. Nên `ID_HINT`, `ID_SNAP`, và cả **constrained decoding** đều nhắm vào một vấn đề
+**không còn tồn tại**. Đây là lý do `ID_SNAP` chỉ bắn 3 lần và sai 2.
+
+Phụ phẩm đáng giữ: nếu có ràng buộc theo đúng collection `x-ref`, nó **an toàn 99.90%** trên gold
+train (959/960, chỉ `train_1696` bị loại) — nhưng vì không có gì để bắt, nó vô dụng.
+
+### 2. "App lạ trong public_test làm adapter mất tác dụng" — SAI
+
+`public_test` có **36 app / 122 tool**; **11 app (30.6%) và 34 tool (27.9%) KHÔNG có trong
+train**. 289/634 mẫu (45.6%) chạm vào chúng. Nhưng hành vi ở đó lại **khớp gold tốt hơn**:
+
+| số lệnh ghi/mẫu | 0 | 1 | 2 | 3 |
+|---|---|---|---|---|
+| GOLD train | 24.1% | 45.1% | 25.7% | 5.0% |
+| ta, app **đã** thấy | 20.9% | 51.3% | 18.3% | 7.2% |
+| ta, app **chưa** thấy | 22.5% | 45.7% | 24.2% | 5.5% |
+
+### 3. Thứ thật sự đo được: 24 call không thể match
+
+`match()` đòi `set(arguments)` khớp chính xác. So tập khoá ta nộp với toàn bộ tập khoá gold cho
+cùng tool (1093 call của 88 tool có ở cả hai split): **1069 (97.8%) đúng dạng, 24 (2.2%) chưa
+từng xuất hiện trong gold** → 16 mẫu. Nặng nhất:
+
+| tool | lệch | ta nộp | gold |
+|---|---|---|---|
+| `calendar.update_event` | **8/8** | `event_id, start` | `end, event_id, start` |
+| `flights.search` | 7/84 | `+passengers`, `+time` | `date, destination, origin` |
+| `smart_home.fan_set` | 4/7 | `+speed` | `device_id, power` |
+| `maps.search_place` | 3/31 | `+limit` | `query` / `near, query` |
+
+Đã nhắm bằng bốn dòng cụ thể trong `SYSTEM_PROMPT`. Ước +0.3 đến +0.8 điểm — nhỏ, nhưng là
+**phần duy nhất đo được** còn lại ở lớp prompt.
+
+### Kết luận: mọi bề mặt đo được ngoại tuyến đã sạch
+
+97.8% tập khoá đúng, 99.5% ID tồn tại, phân phối lệnh ghi khớp gold. Mà điểm vẫn 21. Phần mất
+còn lại là **ngữ nghĩa** — chọn đúng thực thể, giá trị, ý định — và nó không định vị được mà
+không có gold của split đang chấm. Thêm cơ chế thứ năm ở lớp can thiệp là đoán, không phải đo.
+
+## kaggle_v4 — đổi LLM về đúng model của bản kỷ lục, lần đầu chạy GPU
+
+22.52 (`local_v1`) dùng **Qwen3.5-4B**, bỏ đi vì **50–471 giây/mẫu qua llama.cpp CPU** — một vấn
+đề *backend*, không phải vấn đề *model*. Nó **chưa lần nào được chạy trên GPU**.
+
+Kiểm trước, không đoán:
+
+| | |
+|---|---|
+| tham số LLM | 4,659,865,088 = **4.660B** < trần 5B |
+| tổng hệ | 4.660 + 0.769 = **5.429B** < trần 6B |
+| giấy phép | `apache-2.0` (ASR `bsd-3-clause`) |
+| ngày tạo | 27/02/2026 < hạn 26/10/2026 |
+| context | native 262144, ghim `MAX_CONTEXT=12288` ≤ 16384 — **Qwen3-4B-Instruct cũng native 262144**, nên cách hiểu này chính là cách bản 21.64 đã dùng |
+| thinking | `chat_template` có `enable_thinking` → suy luận **ngắn, điều khiển được** |
+
+**Ba hậu quả dính chùm, phải nhận hết:**
+
+1. `USE_ADAPTER=False` — `lora_V4` học trên trọng số Instruct-2507, kiến trúc khác, không nạp
+   được. **22.52 đạt được mà không có adapter nào.** Đây là chỗ lượt này phá nguyên tắc
+   "fine-tune bắt buộc", và đó là một lựa chọn có ý thức.
+2. `REUSE_KV_CACHE=False` — `config.json` cho thấy 32 lớp trộn `full_attention` và
+   `linear_attention` (`full_attention_interval=4`). Lớp linear mang trạng thái hồi quy;
+   `cache.crop(prefix)` **không cắt đúng** được nó. Tái dùng cache sẽ sai **âm thầm**. Giá phải
+   trả: prefill lại toàn bộ prompt mỗi lượt → chậm hơn đáng kể.
+3. `ASR_ID='vinai/PhoWhisper-medium'` — ràng buộc **số học**, không phải sở thích:
+   Qwen3.5-4B + PhoWhisper-**large** = **6.203B > 6B, phạm luật**. Bản 22.52 còn dùng ASR nhỏ
+   hơn nữa (`PhoASR-whisper-small`, 0.242B) và vẫn hơn 21.64 chín điểm.
+
+`Qwen3_5ForConditionalGeneration` có vision tower nên `AutoModelForCausalLM` từ chối → thêm
+nhánh `AutoModelForImageTextToText`. Khối tách `</think>` đã có sẵn từ v3.
+
+`scripts/diag/verify_notebook.py` được bổ sung mục 4c: khi notebook dùng `Qwen/Qwen3.5`, nó bắt
+buộc `REUSE_KV_CACHE=False`, `USE_ADAPTER=False`, hai cờ phải thật sự gác cả đường đọc và đường
+ghi cache, `assert` trần 5B/6B còn nguyên, và **dòng gán** `ASR_ID` không được là
+`PhoWhisper-large`. Mục kiểm cũ ghim literal `USE_ADAPTER = True` đã sửa thành ghim *công tắc*,
+vì ghim giá trị là lặp lại đúng cái bệnh "phép kiểm không đọc đối tượng được giao".
+
+**Nói thẳng về rủi ro:** đây là lượt duy nhất có bằng chứng dẫn về phía > 21.64, nhưng bằng chứng
+đó đến từ một backend khác và không có adapter. Nó có thể thấp hơn 21.64. Màng chắn 50 mẫu phân
+tầng chạy trước, nên nếu model không đóng được `</tool_call>` trong ngân sách 1024 token thì ta
+biết ở phút thứ mười, không phải giờ thứ năm.
