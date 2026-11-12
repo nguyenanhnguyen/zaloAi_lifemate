@@ -184,6 +184,10 @@ if "Qwen/Qwen3.5" in whole:
         "def coerce_arg(": "co phep ep kieu theo schema",
         "xml = parse_xml_call(candidate, types)": "duong XML duoc goi TRUOC duong JSON",
         "types=arg_types(tools)": "kieu tham so lay tu DUNG danh sach tool model da thay",
+        # chat_template Qwen3.5 lam `tool_call.arguments | items` (dong 120): mot chuoi JSON
+        # nem TypeError 'Can only get item pairs from a mapping'. Lust 26 chet o day, ngay
+        # buoc 2 cua mau DAU TIEN. Quy uoc chuoi-JSON la cua OpenAI.
+        "'arguments':dict(args)": "arguments trong history la DICT, khong phai chuoi JSON",
     }.items():
         if token in whole:
             print(f"OK   {what}")
@@ -200,6 +204,11 @@ if "Qwen/Qwen3.5" in whole:
     # giai thich phep tinh 6.203B co chua ten do, va bat vao comment la bao FAIL cho ban DUNG.
     # Khong duoc liet ke ten model_type o nhanh chan: moi bien the ten moi la mot lan chet
     # sau 11 phut tai model.
+    if "'arguments':json.dumps(args" in whole.replace(' ', ''):
+        print("FAIL history con boc arguments thanh chuoi JSON (template lam | items)")
+        fail += 1
+    else:
+        print("OK   khong con boc arguments thanh chuoi JSON")
     if "model_type == 'qwen3_5'" in whole:
         print("FAIL chot cache con ghim ten 'qwen3_5' (Kaggle tra ve 'qwen3_5_text')")
         fail += 1

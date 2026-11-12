@@ -1860,3 +1860,39 @@ xử lý), và `enable_thinking=False` prefill một khối `<think>\n\n</think>
 Và log lượt 25 cho một số cần cho ngân sách thời gian: `transformers` cảnh báo fast path của
 linear attention không có (thiếu `flash-linear-attention` + `causal-conv1d`) nên chạy bản torch —
 **chậm hơn dự tính**, đúng lý do deadline phải thích ứng chứ không ghim cứng.
+
+### 2026-11-12, lượt 26 — phép đọc XML chạy đúng, lỗi chuyển sang phép *ghi* history
+
+Lượt 26 đi xa hơn hẳn: nạp model xong, chốt cache cho qua (`model_type=qwen3_5_text, tai dung
+KV cache TAT`), chạy mẫu thật. Và dòng quan trọng nhất trong cả log:
+
+```
+train_0014 1/50: 41.37s, 1 calls, error
+```
+
+**Model đã gọi được một tool thật.** Phép đọc XML thêm ở commit trước chạy đúng trên model
+thật, không chỉ trên gold render lại. Lỗi nằm ở bước 2, khi render *lại* history:
+
+```
+File "<template>", line 120, in top-level template code
+TypeError: Can only get item pairs from a mapping.
+```
+
+Dòng 120 là `tool_call.arguments | items`. Ta đưa vào `json.dumps(args)` — một **chuỗi**. Quy
+ước chuỗi-JSON đó là của OpenAI; template cũ của Qwen3 làm `| tojson` nên nó chỉ **bọc hai lần
+âm thầm** (history cho model thấy `"arguments": "{\"x\":1}"`) chứ không nổ. Tức `kaggle_v2` ở
+21.64 cũng đang cho model xem history bị bọc hai lần — không đo được là mất bao nhiêu, nhưng
+đó là một khoản lỗ im lặng đã tồn tại suốt. Dict đúng cho **cả hai** template.
+
+Dọn luôn `generation_config`: Qwen3.5 mang sẵn `max_length=448` và các cờ lấy mẫu.
+`max_new_tokens` được ưu tiên nên nó chỉ là cảnh báo, nhưng pha B của ngân sách suy luận nạp
+~5000 token, vượt 448 rất xa — không đáng để điểm phụ thuộc vào thứ tự ưu tiên của một phiên
+bản thư viện.
+
+**Và đây là thứ đáng giá nhất lấy được từ hai lượt chết: `scripts/diag/check_chat_template.py`.**
+Nó render hội thoại nhiều bước bằng **chính** `chat_template.jinja` của Qwen3.5 (bản sao ghim
+sha256 trong `scripts/diag/fixtures/`, có `PROVENANCE.json`), ngay trên laptop, **không GPU,
+không 10 phút tải model, không một session Kaggle**. Nó bắt được cả hai lỗi đã giết lượt 25 và
+26, cộng vòng kín **300/300** gold call đi qua template thật rồi đọc lại không đổi. Số tham số
+thật: llm 4.206B + asr 0.764B = **4.970B** (< 5B và < 6B) — thấp hơn mốc ghim 4.660B vì chỉ
+phần text được nạp, không có vision tower.
