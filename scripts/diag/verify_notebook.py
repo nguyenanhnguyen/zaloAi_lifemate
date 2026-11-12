@@ -171,6 +171,11 @@ if "Qwen/Qwen3.5" in whole:
         "DEADLINE_FLOOR_SECONDS = ": "co san duoi cho deadline moi mau",
         "NOTEBOOK_T0 = time.monotonic()": "co moc do thoi gian da tieu",
         "deadline_plan.json": "ke hoach thoi gian duoc ghi ra file de doc lai",
+        # Chot cache phai dieu kien theo CO, khong theo TEN model. Ban dau ghim 'qwen3_5' va
+        # Kaggle tra ve 'qwen3_5_text' -> chan dung cai no phai cho qua, lust chet o giay 648
+        # vi chinh phep kiem. Cung benh voi phep-kiem-khong-doc-doi-tuong.
+        "if REUSE_KV_CACHE and self.model.config.model_type != 'qwen3':":
+            "chot cache dieu kien theo co, khong liet ke ten model_type",
     }.items():
         if token in whole:
             print(f"OK   {what}")
@@ -185,6 +190,13 @@ if "Qwen/Qwen3.5" in whole:
         fail += 1
     # Phai ghim dong GAN, khong phai chuoi "PhoWhisper-large" o bat ky dau: chinh phan comment
     # giai thich phep tinh 6.203B co chua ten do, va bat vao comment la bao FAIL cho ban DUNG.
+    # Khong duoc liet ke ten model_type o nhanh chan: moi bien the ten moi la mot lan chet
+    # sau 11 phut tai model.
+    if "model_type == 'qwen3_5'" in whole:
+        print("FAIL chot cache con ghim ten 'qwen3_5' (Kaggle tra ve 'qwen3_5_text')")
+        fail += 1
+    else:
+        print("OK   chot cache khong ghim bien the ten model_type")
     if "ASR_ID = 'vinai/PhoWhisper-large'" in whole:
         print("FAIL Qwen3.5 + PhoWhisper-large = 6.203B > 6B (phai dung medium hoac nho hon)")
         fail += 1
