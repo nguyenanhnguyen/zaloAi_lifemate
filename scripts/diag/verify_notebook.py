@@ -146,6 +146,14 @@ if "Qwen/Qwen3.5" in whole:
         "output.past_key_values if REUSE_KV_CACHE else None": "ghi cache co gan co",
         "AutoModelForImageTextToText": "co lop nap cho kien truc ConditionalGeneration",
         "ENABLE_THINKING = True": "qwen3_5: bat suy luan ngan (thanh phan cua ban 22.52)",
+        # Model card Qwen3.5 canh bao endless repetition va de xuat presence_penalty=1.5 +
+        # temperature=1.0, ca hai ta KHONG dung duoc (luat bat buoc greedy; transformers 5.13
+        # khong co presence_penalty). Nen hai lop bao ve duoi day la BAT BUOC khi thinking bat.
+        "NO_REPEAT_NGRAM = ": "co chan vong lap nguyen van",
+        "'no_repeat_ngram_size': NO_REPEAT_NGRAM": "no_repeat_ngram thuc su vao generate()",
+        "THINK_FALLBACK = ": "co duong suy bien khi thinking het token",
+        "def _decide_once(": "decide() tach lam wrapper + mot lan thu",
+        "enable_thinking=think": "moi lan thu dung CO thinking rieng, khong phai co toan cuc",
     }.items():
         if token in whole:
             print(f"OK   {what}")
