@@ -220,6 +220,29 @@ if "Qwen/Qwen3.5" in whole:
     else:
         print("OK   khong dung PhoWhisper-large cung Qwen3.5 (ngan sach 6B)")
 
+    # Lust 27 bi chan boi chinh chot preflight voi broken=0: `failed` dem ca time_limit.
+    # Het gio khong phai hong -- mau bi cat van an diem mot phan, mau chua chay an 0.
+    if "broken_rate=max(0,preflight['failed']-limited)" in whole:
+        print("OK   chot preflight khong tinh time_limit la hong")
+    else:
+        print("FAIL chot preflight van coi time_limit la that bai -> chan luot lanh lan")
+        fail += 1
+    if re.search(r"failure_rate\s*=\s*preflight\['failed'\]", whole):
+        print("FAIL con failure_rate cu tinh ca time_limit")
+        fail += 1
+
+    # A/B suy luan: THINK_BUDGET la thu dat nhat trong duong ong va chua tung duoc do.
+    for needle, label in (
+            ("AB_THINKING = True", "co co AB_THINKING"),
+            ("RUN_DIR/'preflight_nothink'", "arm B chay lai dung tap mau do"),
+            ("ab_thinking.json", "ket qua A/B duoc ghi ra file de doc lai"),
+            ("_fit_a=(_a_t*_n_test)<=_left", "A/B kiem ca GIO chu khong chi diem")):
+        if needle in whole:
+            print("OK   %s" % label)
+        else:
+            print("FAIL thieu: %s" % label)
+            fail += 1
+
     # So hoc: deadline nhan so mau phai NAM TRONG ngan sach session, neu khong thi bai nop
     # se thieu mau va moi mau thieu an 0. Doc tu chinh cac hang so cua notebook.
     # _safe_ns chi chay mot DOAN cua cell cau hinh (vung BARE_READ), nen cac hang so khac

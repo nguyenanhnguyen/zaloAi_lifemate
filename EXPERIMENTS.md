@@ -1896,3 +1896,48 @@ không 10 phút tải model, không một session Kaggle**. Nó bắt được c
 26, cộng vòng kín **300/300** gold call đi qua template thật rồi đọc lại không đổi. Số tham số
 thật: llm 4.206B + asr 0.764B = **4.970B** (< 5B và < 6B) — thấp hơn mốc ghim 4.660B vì chỉ
 phần text được nạp, không có vision tower.
+
+## Lust 27 (2026-11-12): duong ong SONG, chan lai boi chinh chot preflight
+
+Lan dau v4 chay het 50 mau preflight. `broken=0`, khong mot loi dinh dang nao -- phep doc
+tool call XML chay dung tren model that, khong chi tren gold render lai.
+
+```
+exact 44 (38.6% gold) | args_wrong 27 | missing 43 | extra 48 (40.3% pred)
+local_train_score = 23.5    mean 79.34s  p95 95.26s  time_limit 26/50
+```
+
+**Chot goi sai ten van de.** `preflight['failed']` dem ca `time_limit`, nen chot doc 52%
+that bai va chan, du `broken=0`. Het gio khong phai hong: mau bi cat van nop nhung call da
+goi va an diem mot phan, mau CHUA CHAY an 0. Da sua: chot chi con bat `broken`.
+
+**Canh bao `max_length=448` khong phai cua LLM.** 448 la `max_length` cua Whisper (decoder
+co dung 448 vi tri dich). No hien hai lan moi mau = dung nhip ASR. Tieng on, khong phai loi.
+
+### Da do: MOI luat cat bo call thua deu AM
+
+Oracle (duoc nhin gold) noi don bay la that: bo moi extra = +5.0..+10.2 diem, bo rieng
+extra read-only = +3.5..+4.2. Nhung khong luat CAI DUOC nao voi toi do (n=100/50/50, 3 lan
+chay doc lap, `scripts/diag/measure_strip_rules.py`):
+
+| luat | train_check | xref_gate | base_ask1 |
+|---|---|---|---|
+| bo MOI read | **-4.13** | **-9.67** | **-6.65** |
+| bo read sau write cuoi | -2.96 | -1.57 | -4.00 |
+| bo trung lap y het | +0.00 | +0.12 | +0.00 |
+| bo read trung TEN | +0.00 | +0.51 | +0.16 |
+
+Khoang cach oracle doi biet gold, nen hau xu ly khong voi toi. Day la
+`ba-gate-v3-la-net-am` lap lai lan thu hai, tren du lieu khac, voi 6 luat thay vi 3.
+**Khong xay gate cat bo.** Diem nam o cho model goi DUNG tu dau, khong o cho don dep sau.
+
+### Rang buoc that: thoi gian
+
+79.3 s/mau x 634 = **13.9 gio**, tran session 12, ngan sach 10.5. Thu dat nhat la
+`THINK_BUDGET=256` token giai TUAN TU moi buoc. Nhung suy luan chua bao gio duoc do xem no
+co mua duoc diem khong -- dung loai "sua chua do" ma du an nay cam.
+
+Nen v4 bay gio tu do: arm A (suy luan BAT) la preflight thuong, arm B chay lai DUNG tap
+mau do voi suy luan TAT, ghi `ab_thinking.json`, va vong chinh chay theo arm thang. Phep
+chon kiem CA hai dieu: chat luong thuan cao hon, VA du gio chay het tap -- vi diem tren
+giay cua mot arm khong chay het 634 mau la vo nghia.
