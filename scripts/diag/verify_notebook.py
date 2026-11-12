@@ -176,6 +176,14 @@ if "Qwen/Qwen3.5" in whole:
         # vi chinh phep kiem. Cung benh voi phep-kiem-khong-doc-doi-tuong.
         "if REUSE_KV_CACHE and self.model.config.model_type != 'qwen3':":
             "chot cache dieu kien theo co, khong liet ke ten model_type",
+        # Qwen3.5 goi tool bang XML (<function=...><parameter=...>), KHONG bang JSON.
+        # chat_template.jinja dan dinh dang do o moi luot. parse_decision chi doc JSON la
+        # that bai o MOI buoc -> moi mau nop 0 call -> v4 an ~0 diem.
+        "def parse_xml_call(": "co phep doc tool call dinh dang XML goc cua Qwen3.5",
+        "def arg_types(": "co bang kieu tham so lay tu catalog",
+        "def coerce_arg(": "co phep ep kieu theo schema",
+        "xml = parse_xml_call(candidate, types)": "duong XML duoc goi TRUOC duong JSON",
+        "types=arg_types(tools)": "kieu tham so lay tu DUNG danh sach tool model da thay",
     }.items():
         if token in whole:
             print(f"OK   {what}")

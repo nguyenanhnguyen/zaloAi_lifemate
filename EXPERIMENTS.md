@@ -1813,3 +1813,50 @@ tiền tuyến ở vòng lặp, còn luật buộc chạy hoàn toàn offline kh
 của chính nó (Gemma 3 270M không bị lặp) cho thấy sửa trọng số *bỏ được vật cản che một năng lực*
 nhưng **không thêm được năng lực model không có**. Điều rút ra áp được: khoản thu nằm ở **bỏ vật
 cản**, và hai vật cản đo được của ta là hết token và hết giờ — đúng hai thứ ba chốt trên nhắm vào.
+
+### 2026-11-12, lượt 25 chết ở giây 648 — và một lỗi nặng hơn tìm ra khi đọc chat template
+
+**Lỗi làm chết lượt 25 là phép kiểm của chính tôi.** `ValueError: cache impl chi kiem dinh cho
+qwen3 full attention; model_type=qwen3_5_text REUSE_KV_CACHE=False`. Tôi ghim tên `'qwen3_5'`,
+Kaggle nạp `Qwen3_5ForConditionalGeneration` và trả về `'qwen3_5_text'`. `REUSE_KV_CACHE=False`
+là đúng điều kiện an toàn chốt đòi, **và nó vẫn chặn** — sau 11 phút tải model. Sửa: điều kiện
+theo **cờ**, không theo tên, vì khối crop chỉ chạy khi `REUSE_KV_CACHE` bật.
+
+**Và lỗi nặng hơn, tìm ra bằng cách tải `chat_template.jinja` của `Qwen/Qwen3.5-4B` @`851bf6e`
+về đọc: Qwen3.5 gọi tool bằng XML, không bằng JSON.** Template đưa vào system prompt ở *mỗi*
+lượt:
+
+```
+<tool_call>
+<function=ten_tool>
+<parameter=ten_tham_so>
+gia tri
+</parameter>
+</function>
+</tool_call>
+```
+
+`parse_decision` làm `json.loads` trên phần giữa `<tool_call></tool_call>` → thất bại ở **mọi**
+bước → `InvalidDecision` → mọi mẫu nộp 0 call. **v4 sẽ ăn ~0 điểm**, và không có log nào ở lượt
+25 cho thấy điều đó, vì nó chết trước khi tới bước LLM đầu tiên.
+
+Phép đọc ngược phải dựa vào **kiểu trong schema**, không đoán từ hình dạng chuỗi — template
+render xuôi bằng `tojson` cho mapping/sequence và `string` cho scalar (dòng 119–121). `"50000"`
+là số khi schema nói `number` và là **chuỗi** khi schema nói `string`; đoán sai kiểu là mất cả
+call vì `match()` so `aa[k]==bb[k]`. Đáng chú ý: `smart_home.fan_set.power` kiểu **string**,
+không phải boolean — một phép đoán "trông như boolean" đã mất call đó.
+
+**Vòng kín trên gold thật:** lấy 3541 gold tool_call của `train`, render bằng đúng hai dòng Jinja
+đó, đọc lại bằng `parse_decision` mới, đối chiếu bằng `match()` — **3541/3541 (100%)**, 0 call
+mất. Cộng 8 nhóm kiểm đơn vị (số, boolean, object/array, giá trị nhiều dòng, không tham số, kiểu
+không biết thì giữ nguyên chuỗi, đường JSON cũ không bị phá, `<tool_call>` chưa đóng vẫn ném lỗi
+để `THINK_FALLBACK` bắt).
+
+Template còn xác nhận hai điều cơ chế hai pha dựa vào: `enable_thinking=True` **prefill
+`<think>\n` đang mở** (nên output không có thẻ mở, chỉ có thẻ đóng — đúng cách `rpartition` đang
+xử lý), và `enable_thinking=False` prefill một khối `<think>\n\n</think>\n\n` đã đóng. Tức cả
+`THINK_BUDGET` lẫn phép chèn `</think>` bằng tay đều đặt đúng chỗ.
+
+Và log lượt 25 cho một số cần cho ngân sách thời gian: `transformers` cảnh báo fast path của
+linear attention không có (thiếu `flash-linear-attention` + `causal-conv1d`) nên chạy bản torch —
+**chậm hơn dự tính**, đúng lý do deadline phải thích ứng chứ không ghim cứng.
