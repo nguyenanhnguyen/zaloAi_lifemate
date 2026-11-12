@@ -173,5 +173,30 @@ for call, back in bad_ex:
     print('    doc  : %s' % json.dumps(back, ensure_ascii=False)[:150])
 check('khong mat call nao', ok, total)
 
+print('\n=== 7. duong TU CHOI/THU LAI: chen mot message user vao giua ===')
+# cell infer_sample append {'role':'user'} khi call bi tu choi (schema sai, ID bia, output bi
+# cat). Day la mot user turn SAU assistant+tool, va template co logic ns.last_query_index phu
+# thuoc vi tri user cuoi -- duong nay chua tung duoc render qua template nay.
+retry = messages + [
+    {'role': 'user', 'content': 'Dau ra chua hop le hoac bi cat. Goi lai dung schema.'},
+    {'role': 'assistant', 'content': 'Can doc so du truoc.', 'tool_calls': [
+        {'id': 'call_1', 'type': 'function',
+         'function': {'name': 'banking.get_balance', 'arguments': {}}}]},
+    {'role': 'tool', 'tool_call_id': 'call_1', 'content': '{"ok":true,"balance":120000}'},
+]
+try:
+    out7 = render(retry, TOOLS, True)
+    print('  DAT   render KHONG nem loi')
+    check('call khong tham so ra dung', '<function=banking.get_balance>' in out7)
+    check('assistant co CA content lan tool_call', 'Can doc so du truoc.' in out7)
+    check('hai tool_response rieng biet', out7.count('<tool_response>'), 2)
+    check('ket thuc bang <think> dang mo', out7.endswith('<think>\n'))
+    piece7 = out7[out7.rindex('<tool_call>'):out7.rindex('</tool_call>') + 12]
+    check('doc lai call khong tham so', parse_decision(piece7, types=TYPES),
+          {'name': 'banking.get_balance', 'arguments': {}})
+except Exception as exc:                                   # noqa: BLE001
+    FAIL += 1
+    print('  TRUOT render nem %s: %s' % (type(exc).__name__, exc))
+
 print('\n' + ('TAT CA DAT' if not FAIL else '%d PHEP KIEM TRUOT' % FAIL))
 sys.exit(1 if FAIL else 0)
