@@ -1768,3 +1768,48 @@ vì ghim giá trị là lặp lại đúng cái bệnh "phép kiểm không đ�
 đó đến từ một backend khác và không có adapter. Nó có thể thấp hơn 21.64. Màng chắn 50 mẫu phân
 tầng chạy trước, nên nếu model không đóng được `</tool_call>` trong ngân sách 1024 token thì ta
 biết ở phút thứ mười, không phải giờ thứ năm.
+
+### 2026-11-12 — v4 "đã chạy" là v3_fix, và soát lại tìm ra rào chắn thật: thời gian
+
+**Con số 20.93 của ngày 12/11 không phải điểm của v4.** File tải về từ Kaggle Output tự khai
+tên nó: `results/lifemate/kaggle_v3/`. `status.json` ghi `model: Qwen/Qwen3-4B-Instruct-2507`,
+`manifest.json` ghi `asr_id: PhoWhisper-large`, `parameters.llm: 4,022,468,096`, `adapter:
+lifemate-lora`, `max_output: 256`, `id_snap: true`, `time_utc: 2026-11-10T09:25`. So từng mẫu:
+khác `kaggle_v3` ở 31/634 mẫu, khác `kaggle_v3_fix` ở **0/634**. Đó là lượt `kaggle_v3_fix`,
+đã ăn 20.93. v4 chưa từng chạy.
+
+**Và soát lại thì v4 như đã viết KHÔNG chạy nổi hết tập.** Phép nhân từ số đã đo:
+
+| tok/s (đo được) | token/lượt | lượt/mẫu | s/mẫu | 634 mẫu |
+|---|---|---|---|---|
+| 9 (V15 @ ctx 9k) | 1024 | 4.0 | 463 | **81.6 giờ** |
+| 15 | 768 | 2.5 | 134 | 23.6 giờ |
+| 20 | 768 | 2.5 | 102 | 17.9 giờ |
+
+Trần một session Kaggle là 12 giờ. `T4_TEST_DEADLINE_SECONDS = 600` là con số của bản **không**
+thinking **có** tái dùng cache (kaggle_v3 đo 20.9 s/mẫu, nên 600 chưa bao giờ chạm trần). v4 bỏ
+tái dùng cache *và* bật thinking, nên 600 không còn là trần phòng hộ mà là giấy phép để session
+hết giờ giữa đường — và **mỗi mẫu chưa chạy ăn 0**, khoản lỗ lớn hơn mọi gate từng đo được.
+
+Ba chốt được thêm, tất cả xác định:
+
+1. **Ngân sách suy luận tách riêng** (`THINK_BUDGET=256` / `ANSWER_BUDGET=256`). Dùng chung một
+   `MAX_NEW_TOKENS` cho cả suy luận và câu trả lời là đúng cách V15 chết: 4/5 mẫu
+   `LLM token limit reached`. Bản kỷ lục 22.52 cho reasoning 512 token **riêng**. Hai pha: pha A
+   chỉ khối `<think>`, hết ngân sách thì **tự chèn `</think>`** rồi bắt model trả lời ngay.
+2. **Deadline thích ứng.** Trước vòng chạy chính, deadline mỗi mẫu = thời gian *còn lại* của
+   `SESSION_BUDGET_HOURS=10.5` chia số mẫu (10.5 h / 634 = 60 s), sàn `DEADLINE_FLOOR_SECONDS=25`.
+   Ghi ra `deadline_plan.json`. Mẫu bị cắt vẫn nộp những call đã gọi → điểm một phần; mẫu không
+   được chạy ăn 0. **Cắt luôn tốt hơn không chạy.**
+3. **`THINK_MIN_SECONDS=30`.** Còn 15 giây mà bật thinking là mất CẢ call; tắt đi thì vẫn kịp một
+   call. Lớp cuối, sau `THINK_FALLBACK`.
+
+Kiểm ngoại tuyến bằng chính mã bóc từ notebook: hai pha 6/6 ca (kể cả `prefix>0` phải ghép lại
+đoạn cache), đường suy biến 7/7 ca. Verifier có thêm 14 mục, trong đó một mục **số học**: đọc
+`SESSION_BUDGET_HOURS` và `DEADLINE_FLOOR_SECONDS` ra rồi kiểm 10.5 h / 634 mẫu ≥ sàn.
+
+**Blog "Sparks of Weight-Space Programming" không dùng được làm phương pháp** — nó cần một LLM
+tiền tuyến ở vòng lặp, còn luật buộc chạy hoàn toàn offline khi suy luận. Thí nghiệm đối chứng
+của chính nó (Gemma 3 270M không bị lặp) cho thấy sửa trọng số *bỏ được vật cản che một năng lực*
+nhưng **không thêm được năng lực model không có**. Điều rút ra áp được: khoản thu nằm ở **bỏ vật
+cản**, và hai vật cản đo được của ta là hết token và hết giờ — đúng hai thứ ba chốt trên nhắm vào.

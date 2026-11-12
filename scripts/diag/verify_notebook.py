@@ -154,6 +154,23 @@ if "Qwen/Qwen3.5" in whole:
         "THINK_FALLBACK = ": "co duong suy bien khi thinking het token",
         "def _decide_once(": "decide() tach lam wrapper + mot lan thu",
         "enable_thinking=think": "moi lan thu dung CO thinking rieng, khong phai co toan cuc",
+        # Ngan sach suy luan TACH RIENG. Dung chung mot con so cho suy luan va cau tra loi
+        # la cach V15 chet: suy luan dai an het ngan sach truoc khi kip viet <tool_call>,
+        # va mau do nop 0 call. Ban ky luc 22.52 cho reasoning 512 token RIENG.
+        "THINK_BUDGET = ": "co tran rieng cho khoi <think>",
+        "ANSWER_BUDGET = ": "co tran rieng cho cau tra loi",
+        "MAX_NEW_TOKENS = THINK_BUDGET + ANSWER_BUDGET": "tong ngan sach la phep cong hai phan",
+        "max_new_tokens=THINK_BUDGET": "pha A thuc su bi gioi han boi THINK_BUDGET",
+        "max_new_tokens=ANSWER_BUDGET": "pha B thuc su bi gioi han boi ANSWER_BUDGET",
+        "stop_strings=['</think>', '</tool_call>']": "pha A dung som khi het suy luan",
+        "seq = ids[:prefix] + first.sequences[0].tolist()": "pha B prefill CA doan cache",
+        # Ngan sach THOI GIAN. 634 mau x 512 token khong tai dung cache = 14-44 gio, tran
+        # session Kaggle la 12. Deadline co dinh nghia la het gio giua duong va moi mau
+        # chua chay an 0 -- lo lon hon moi gate tung do duoc.
+        "SESSION_BUDGET_HOURS = ": "co ngan sach thoi gian cho ca session",
+        "DEADLINE_FLOOR_SECONDS = ": "co san duoi cho deadline moi mau",
+        "NOTEBOOK_T0 = time.monotonic()": "co moc do thoi gian da tieu",
+        "deadline_plan.json": "ke hoach thoi gian duoc ghi ra file de doc lai",
     }.items():
         if token in whole:
             print(f"OK   {what}")
@@ -173,6 +190,30 @@ if "Qwen/Qwen3.5" in whole:
         fail += 1
     else:
         print("OK   khong dung PhoWhisper-large cung Qwen3.5 (ngan sach 6B)")
+
+    # So hoc: deadline nhan so mau phai NAM TRONG ngan sach session, neu khong thi bai nop
+    # se thieu mau va moi mau thieu an 0. Doc tu chinh cac hang so cua notebook.
+    # _safe_ns chi chay mot DOAN cua cell cau hinh (vung BARE_READ), nen cac hang so khac
+    # khong co trong do. Doc truc tiep bang ast: khong chay code nao, va khong bi lech khi
+    # cell cau hinh doi thu tu.
+    def _lit(name):
+        for _line in whole.splitlines():
+            _m = re.match(r"\s*" + re.escape(name) + r"\s*=\s*([0-9.]+)\s*(?:#.*)?$", _line)
+            if _m:
+                return float(_m.group(1))
+        raise KeyError(name)
+    try:
+        _tb = _lit("THINK_BUDGET"); _ab = _lit("ANSWER_BUDGET")
+        _sb = _lit("SESSION_BUDGET_HOURS"); _fl = _lit("DEADLINE_FLOOR_SECONDS")
+        _per = _sb * 3600 / 634
+        print(f"OK   ngan sach: {_sb} gio / 634 mau = {_per:.0f} s/mau "
+              f"(san {_fl:.0f} s, token {_tb:.0f}+{_ab:.0f}={_tb + _ab:.0f})")
+        if _per < _fl:
+            print(f"FAIL {_sb} gio chia 634 mau = {_per:.0f} s/mau, duoi san {_fl:.0f} s")
+            fail += 1
+    except KeyError as _exc:
+        print(f"FAIL khong doc duoc hang so ngan sach: {_exc}")
+        fail += 1
 
 # 5) tên dùng trước khi gán — lớp lỗi chỉ lộ ra sau khi đã tải 13 GiB model trên Kaggle
 import subprocess  # noqa: E402
